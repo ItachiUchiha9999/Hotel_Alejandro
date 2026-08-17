@@ -6,11 +6,11 @@ Este es el proyecto grupal para la materia Sistemas III. Aquí gestionaremos las
 
 ## 👥 Integrantes y Grupos de Trabajo
 
-### 💻 Grupo Backend (Lógica y Base de Datos)
-* **Liendro Enzo Mauricio** 
+### 💻 Grupo Backend (Lógica y Base de Datos) 
 * **Oscari Lucio Agustin** 
 * **Colque Villalba Agustín Gabriel** 
-* **Sarmiento Martina Solange** 
+* **Sarmiento Martina Solange**
+* **Liendro Enzo Mauricio**
 
 ### 🎨 Grupo Frontend (Diseño y Pantallas)
 * **Andrada Camila María**
