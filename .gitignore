@@ -1,0 +1,19 @@
+# Dependencias
+**/node_modules/
+
+# Archivos de entorno y claves sensibles (AFIP/ARCA)
+**/.env
+**/.env.*
+*.crt
+*.key
+*.pem
+
+# Compilados
+**/dist/
+**/build/
+.next/
+
+# Logs y SO
+*.log
+.DS_Store
+.vscode/
