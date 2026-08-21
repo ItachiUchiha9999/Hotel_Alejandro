@@ -73,4 +73,4 @@ Envía tus cambios definitivamente a internet:
 git push origin main
 ```
 
-> 🛑 **ATENCIÓN:** Nunca subas archivos `.env` (credenciales de bases de datos) ni claves privadas de AFIP al repositorio público. Quedan bloqueadas por seguridad.
+> 🛑 **ATENCIÓN:** Nunca subas archivos `.env` (credenciales de bases de datos) ni claves privadas de AFIP al repositorio público. Quedan bloqueadas por seguridad..
