@@ -221,3 +221,33 @@ VALUES ('TRANSFERENCIA', 1, 2, 3, 'Transferencia para stock de ropa blanca diari
 
 INSERT INTO Movement_Stock_Detail (stock_movement_id, article_id, amount)
 VALUES (2, 2, 20.00);
+
+-- ================================================
+-- Modificación de Movement_Stock_Detail
+-- Permite valores NULL temporalmente
+-- ================================================
+
+-- 1. Eliminar el constraint UNIQUE actual
+ALTER TABLE Movement_Stock_Detail 
+DROP CONSTRAINT IF EXISTS uq_movement_article;
+
+-- 2. Eliminar la Foreign Key actual que apunta a Articles
+ALTER TABLE Movement_Stock_Detail 
+DROP CONSTRAINT IF EXISTS fk_detail_article;
+
+-- 3. Eliminar la columna article_id
+ALTER TABLE Movement_Stock_Detail 
+DROP COLUMN IF EXISTS article_id;
+
+-- 4. Agregar la nueva columna stock_id (PERMITE NULL temporalmente)
+ALTER TABLE Movement_Stock_Detail 
+ADD COLUMN stock_id INT;
+
+-- 5. Agregar el nuevo constraint UNIQUE
+ALTER TABLE Movement_Stock_Detail 
+ADD CONSTRAINT uq_movement_stock UNIQUE (stock_movement_id, stock_id);
+
+-- 6. Agregar la nueva Foreign Key que apunta a Articles_Deposit_Stock
+ALTER TABLE Movement_Stock_Detail 
+ADD CONSTRAINT fk_detail_stock 
+FOREIGN KEY (stock_id) REFERENCES Articles_Deposit_Stock(stock_id);
