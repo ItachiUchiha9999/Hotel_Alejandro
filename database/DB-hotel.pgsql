@@ -251,3 +251,22 @@ ADD CONSTRAINT uq_movement_stock UNIQUE (stock_movement_id, stock_id);
 ALTER TABLE Movement_Stock_Detail 
 ADD CONSTRAINT fk_detail_stock 
 FOREIGN KEY (stock_id) REFERENCES Articles_Deposit_Stock(stock_id);
+
+--Modificacion tabla stock_id setenado not null
+-- 1. Eliminar los detalles de movimiento de prueba que quedaron con stock_id NULL
+DELETE FROM Movement_Stock_Detail 
+WHERE stock_id IS NULL;
+
+-- 2. Ahora sí, aplicar la restricción NOT NULL sin errores
+ALTER TABLE Movement_Stock_Detail
+ALTER COLUMN stock_id SET NOT NULL;
+
+-- 3. Volver a insertar los detalles de prueba vinculados al stock_id correcto:
+-- Movimiento 1: Agua Mineral en Depósito Frigobar (stock_id 6)
+INSERT INTO Movement_Stock_Detail (stock_movement_id, stock_id, amount)
+VALUES (1, 6, 120.00);
+
+-- Movimiento 2: Toallones en Depósito Central (stock_id 2)
+INSERT INTO Movement_Stock_Detail (stock_movement_id, stock_id, amount)
+VALUES (2, 2, 20.00);
+
