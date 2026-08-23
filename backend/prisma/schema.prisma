@@ -128,4 +128,3 @@ enum type_operation_enum {
   TRANSFERENCIA
   CONSUMO
 }
-/*update*/
