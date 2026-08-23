@@ -1,10 +1,10 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model articles {
@@ -19,20 +19,20 @@ model articles {
   creation_date             DateTime                 @default(now()) @db.Timestamptz(6)
   categories                categories               @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_article_categories")
   articles_deposit_stock    articles_deposit_stock[]
-  movement_stock_detail     movement_stock_detail[]
 
   @@index([category_id], map: "idx_articles_category")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model articles_deposit_stock {
-  stock_id     Int      @id @default(autoincrement())
-  article_id   Int
-  deposit_id   Int
-  stock_amount Decimal  @default(0.00) @db.Decimal(12, 2)
-  update_date  DateTime @default(now()) @db.Timestamptz(6)
-  articles     articles @relation(fields: [article_id], references: [article_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_article")
-  deposit      deposit  @relation(fields: [deposit_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_deposit")
+  stock_id              Int                     @id @default(autoincrement())
+  article_id            Int
+  deposit_id            Int
+  stock_amount          Decimal                 @default(0.00) @db.Decimal(12, 2)
+  update_date           DateTime                @default(now()) @db.Timestamptz(6)
+  articles              articles                @relation(fields: [article_id], references: [article_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_article")
+  deposit               deposit                 @relation(fields: [deposit_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_deposit")
+  movement_stock_detail movement_stock_detail[]
 
   @@unique([article_id, deposit_id], map: "uq_article_deposit")
   @@index([article_id, deposit_id], map: "idx_stock_articles_deposit")
@@ -71,14 +71,14 @@ model employees {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model movement_stock_detail {
-  detail_id         Int            @id @default(autoincrement())
-  stock_movement_id Int
-  article_id        Int
-  amount            Decimal        @db.Decimal(12, 2)
-  articles          articles       @relation(fields: [article_id], references: [article_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_detail_article")
-  stock_movement    stock_movement @relation(fields: [stock_movement_id], references: [stock_movement_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_movement")
+  detail_id              Int                    @id @default(autoincrement())
+  stock_movement_id      Int
+  amount                 Decimal                @db.Decimal(12, 2)
+  stock_id               Int
+  stock_movement         stock_movement         @relation(fields: [stock_movement_id], references: [stock_movement_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_movement")
+  articles_deposit_stock articles_deposit_stock @relation(fields: [stock_id], references: [stock_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_detail_stock")
 
-  @@unique([stock_movement_id, article_id], map: "uq_movement_article")
+  @@unique([stock_movement_id, stock_id], map: "uq_movement_stock")
 }
 
 model roles {
@@ -128,3 +128,4 @@ enum type_operation_enum {
   TRANSFERENCIA
   CONSUMO
 }
+/*update*/
