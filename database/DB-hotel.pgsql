@@ -270,3 +270,4 @@ VALUES (1, 6, 120.00);
 INSERT INTO Movement_Stock_Detail (stock_movement_id, stock_id, amount)
 VALUES (2, 2, 20.00);
 
+-- =================================================================
