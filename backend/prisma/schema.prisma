@@ -1,10 +1,10 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model articles {
@@ -23,7 +23,6 @@ model articles {
   @@index([category_id], map: "idx_articles_category")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model articles_deposit_stock {
   stock_id              Int                     @id @default(autoincrement())
   article_id            Int
@@ -47,13 +46,13 @@ model categories {
 }
 
 model deposit {
-  deposit_id                                                    Int                      @id @default(autoincrement())
-  deposit_name                                                  String                   @unique @db.VarChar(100)
-  deposit_location                                              String?                  @db.VarChar(150)
-  deposit_state                                                 Boolean                  @default(true)
-  articles_deposit_stock                                        articles_deposit_stock[]
-  stock_movement_stock_movement_deposit_destination_idTodeposit stock_movement[]         @relation("stock_movement_deposit_destination_idTodeposit")
-  stock_movement_stock_movement_deposit_origin_idTodeposit      stock_movement[]         @relation("stock_movement_deposit_origin_idTodeposit")
+  deposit_id                Int                      @id @default(autoincrement())
+  deposit_name              String                   @unique @db.VarChar(100)
+  deposit_location          String?                  @db.VarChar(150)
+  deposit_state             Boolean                  @default(true)
+  articles_deposit_stock    articles_deposit_stock[]
+  stock_movement_origin     stock_movement[]         @relation("stock_movement_origin")
+  stock_movement_destination stock_movement[]        @relation("stock_movement_destination")
 }
 
 model employees {
@@ -69,12 +68,20 @@ model employees {
   stock_movement     stock_movement[]
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model movement_type {
+  movement_type_id Int              @id @default(autoincrement())
+  movement_type    String           @unique @db.VarChar(50)
+  description      String           @db.VarChar(255)
+  effect           String           @db.VarChar(20)
+  active           Boolean          @default(true)
+  stock_movement   stock_movement[]
+}
+
 model movement_stock_detail {
   detail_id              Int                    @id @default(autoincrement())
   stock_movement_id      Int
-  amount                 Decimal                @db.Decimal(12, 2)
   stock_id               Int
+  amount                 Decimal                @db.Decimal(12, 2)
   stock_movement         stock_movement         @relation(fields: [stock_movement_id], references: [stock_movement_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_movement")
   articles_deposit_stock articles_deposit_stock @relation(fields: [stock_id], references: [stock_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_detail_stock")
 
@@ -91,22 +98,24 @@ model roles {
 }
 
 model stock_movement {
-  stock_movement_id                                      Int                     @id @default(autoincrement())
-  stock_movement_operation_type                          type_operation_enum
-  deposit_origin_id                                      Int
-  deposit_destination_id                                 Int?
-  employees_id                                           Int
-  supplier_id                                            Int?
-  observations                                           String?                 @db.VarChar(255)
-  transaction_date                                       DateTime                @default(now()) @db.Timestamptz(6)
-  movement_stock_detail                                  movement_stock_detail[]
-  employees                                              employees               @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_movement_employees")
-  suppliers                                              suppliers?              @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_movement_supplier")
-  deposit_stock_movement_deposit_destination_idTodeposit deposit?                @relation("stock_movement_deposit_destination_idTodeposit", fields: [deposit_destination_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_movement_destination")
-  deposit_stock_movement_deposit_origin_idTodeposit      deposit                 @relation("stock_movement_deposit_origin_idTodeposit", fields: [deposit_origin_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_movement_origin")
+  stock_movement_id      Int                     @id @default(autoincrement())
+  movement_type_id       Int
+  deposit_origin_id      Int
+  deposit_destination_id Int?
+  employees_id           Int
+  supplier_id            Int?
+  observations           String?                 @db.VarChar(255)
+  transaction_date       DateTime                @default(now()) @db.Timestamptz(6)
+  movement_type          movement_type           @relation(fields: [movement_type_id], references: [movement_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_movement_type")
+  employees              employees               @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_movement_employees")
+  suppliers              suppliers?              @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_movement_supplier")
+  deposit_origin         deposit                 @relation("stock_movement_origin", fields: [deposit_origin_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_movement_origin")
+  deposit_destination    deposit?                @relation("stock_movement_destination", fields: [deposit_destination_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_movement_destination")
+  movement_stock_detail  movement_stock_detail[]
 
   @@index([transaction_date], map: "idx_movement_date")
   @@index([deposit_origin_id], map: "idx_movement_origin")
+  @@index([movement_type_id], map: "idx_movement_type")
 }
 
 model suppliers {
@@ -121,11 +130,3 @@ model suppliers {
   creation_date       DateTime         @default(now()) @db.Timestamptz(6)
   stock_movement      stock_movement[]
 }
-
-enum type_operation_enum {
-  INGRESO
-  EGRESO
-  TRANSFERENCIA
-  CONSUMO
-}
-/*update*/
