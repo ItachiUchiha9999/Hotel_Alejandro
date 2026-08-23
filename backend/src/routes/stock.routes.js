@@ -1,9 +1,12 @@
 const { Router } = require('express');
-const { getStockByDeposit } = require('../controllers/stock.controller');
+const { getStockByDeposit, createStockMovement } = require('../controllers/stock.controller');
 
 const router = Router();
 
-// La ruta interna debe ser '/deposit/:depositId'
+// Consultar stock por depósito
 router.get('/deposit/:depositId', getStockByDeposit);
+
+// Registrar un nuevo movimiento de stock
+router.post('/movements', createStockMovement);
 
 module.exports = router;

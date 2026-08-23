@@ -1,43 +1,47 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { name: 'Control de Stock', href: '/stock', icon: '📦' },
-  { name: 'Movimientos', href: '/stock/movements', icon: '🔄' },
-  { name: 'Artículos', href: '/articles', icon: '🏷️' },
-  { name: 'Depósitos', href: '/deposits', icon: '🏢' },
-  { name: 'Reportes', href: '/reports', icon: '📊' },
+  { name: 'Depósitos', href: '/deposits' },
+  { name: 'Artículos', href: '/articles' },
+  { name: 'Stock por depósito', href: '/stock' },
+  { name: 'Tipos de movimientos', href: '/stock/movement-types' },
+  { name: 'Movimientos', href: '/stock/movements' },
+  { name: 'Transferencias', href: '/stock/transfers' },
+  { name: 'Reportes', href: '/reports' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-[#1b2631] text-slate-300 flex flex-col justify-between h-full border-r border-[#2c3e50] shrink-0 shadow-xl">
+    <aside className="w-72 bg-[#26333B] text-slate-300 flex flex-col justify-between h-screen border-r border-slate-700/40 shrink-0 select-none font-serif">
       <div>
-        {/* LOGO E IDENTIDAD DEL HOTEL */}
-        <div className="p-6 border-b border-[#2c3e50] flex flex-col items-center text-center bg-[#151f28]">
-          <div className="relative w-28 h-28 mb-2">
-            <Image
-              src="/logo-hotel.png"
-              alt="Logo Hotel Alejandro I"
-              fill
-              className="object-contain"
-              priority
-            />
-          </div>
-          <span className="text-[10px] tracking-widest text-[#c59b27] uppercase font-semibold">
-            Sistema de Gestión
+        <div className="p-8 border-b border-slate-700/40 text-center flex flex-col items-center">
+          <svg className="w-10 h-10 mb-3 text-[#CBA45C]" viewBox="0 0 100 100" fill="none" stroke="currentColor">
+            <polygon points="50,5 90,27.5 90,72.5 50,95 10,72.5 10,27.5" strokeWidth="3" fill="none" />
+            <path d="M30,65 L30,45 L40,55 L50,35 L60,55 L70,45 L70,65 Z" fill="currentColor" strokeWidth="1" />
+            <circle cx="30" cy="40" r="2.5" fill="currentColor" />
+            <circle cx="50" cy="30" r="2.5" fill="currentColor" />
+            <circle cx="70" cy="40" r="2.5" fill="currentColor" />
+          </svg>
+
+          <span className="text-[16px] tracking-[0.43em] text-[#CBA45C] uppercase block font-normal leading-none mb-1">
+            HOTEL
+          </span>
+          <h1 className="text-[30px] font-normal leading-tight tracking-tight text-[#F4EFE4] my-0">
+            ALEJANDRO I
+          </h1>
+          <span className="text-[12px] tracking-[0.3em] text-[#CBA45C] uppercase block mt-1 leading-none font-light">
+            [ SALTA · ARGENTINA ]
           </span>
         </div>
 
-        {/* NAVEGACIÓN */}
-        <nav className="p-4 space-y-1.5">
-          <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-[#c59b27]/70 mb-3">
-            Móduos del Sistema
+        <nav className="p-4 space-y-1 font-sans">
+          <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-[#CBA45C] mb-3 opacity-90">
+            MÓDULO STK
           </p>
           {navItems.map((item) => {
             const isActive = pathname === item.href;
@@ -45,24 +49,17 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3.5 py-3 rounded-lg text-sm font-medium transition-all ${
+                className={`block px-3 py-2.5 rounded text-xs font-medium transition-all ${
                   isActive
-                    ? 'bg-[#c59b27] text-[#1b2631] font-bold shadow-lg shadow-[#c59b27]/10'
-                    : 'hover:bg-[#253342] text-slate-300 hover:text-white'
+                    ? 'bg-[#CBA45C] text-slate-950 font-semibold shadow-sm'
+                    : 'hover:bg-slate-800/50 text-slate-300 hover:text-white'
                 }`}
               >
-                <span className="text-base">{item.icon}</span>
                 {item.name}
               </Link>
             );
           })}
         </nav>
-      </div>
-
-      {/* PIE DEL SIDEBAR */}
-      <div className="p-4 border-t border-[#2c3e50] bg-[#151f28] text-center">
-        <p className="text-xs font-serif text-[#c59b27]">Hotel Alejandro I</p>
-        <p className="text-[10px] text-slate-500 mt-0.5">Salta • Argentina</p>
       </div>
     </aside>
   );
