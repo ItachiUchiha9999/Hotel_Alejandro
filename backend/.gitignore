@@ -10,3 +10,4 @@ prisma/generated/
 node_modules/
 prisma/generated/
 .env
+
