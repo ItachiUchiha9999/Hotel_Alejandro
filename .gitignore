@@ -12,6 +12,7 @@
 **/dist/
 **/build/
 .next/
+**/.next/
 **/next-env.d.ts
 
 # Logs y SO
