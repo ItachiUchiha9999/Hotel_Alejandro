@@ -12,11 +12,12 @@
 **/dist/
 **/build/
 .next/
+**/next-env.d.ts
 
 # Logs y SO
 *.log
 .DS_Store
 .vscode/
 
-
+# Gestor de paquetes: se usa pnpm
 package-lock.json
