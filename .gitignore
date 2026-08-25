@@ -1,24 +1,9 @@
-# Dependencias
-**/node_modules/
-
-# Archivos de entorno y claves sensibles (AFIP/ARCA)
-**/.env
-**/.env.*
-*.crt
-*.key
-*.pem
-
-# Compilados
-**/dist/
-**/build/
+node_modules/
 .next/
-**/.next/
-**/next-env.d.ts
-
-# Logs y SO
+.env
+.env.local
 *.log
 .DS_Store
-.vscode/
-
-# Gestor de paquetes: se usa pnpm
-package-lock.json
+*.rar
+*.zip
+*.7z

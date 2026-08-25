@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/**
+ * Sistema de diseño del Hotel Alejandro I.
+ *
+ * IMPORTANTE: el proyecto usa Tailwind v4, donde el tema se define en CSS con
+ * @theme. El tailwind.config.ts que había antes era formato v3 y Tailwind lo
+ * ignoraba por completo, así que clases como bg-carbon, text-gold o border-line
+ * no generaban ningún estilo: la aplicación entera se veía sin colores de marca.
+ * Los tokens que estaban en ese archivo ahora viven acá.
+ */
+@theme {
+  /* Identidad del hotel */
+  --color-carbon: #26333b;        /* sidebar, textos de máxima jerarquía */
+  --color-carbon-dark: #1a242b;   /* header */
+  --color-carbon-light: #33434d;  /* separadores sobre fondo oscuro */
+
+  --color-gold: #cba45c;          /* botón primario, item activo */
+  --color-gold-dark: #b08d48;     /* hover del botón primario */
+  --color-gold-light: #e3cb99;
+
+  --color-bone: #f4efe4;          /* fondo del área de trabajo */
+  --color-bone-dark: #e9e2d2;
+
+  --color-line: #e3ddd0;          /* bordes de cards, tablas e inputs */
+
+  /* Estados: no son de marca, se usan solo para feedback */
+  --color-success: #3f7a5e;
+  --color-danger: #b3453c;
+  --color-warning: #c08a34;
+  --color-info: #3d6b87;
+
+  /* Tipografía */
+  --font-serif: Georgia, "Times New Roman", Times, serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --shadow-card:
+    0 1px 2px rgba(38, 51, 59, 0.04),
+    0 8px 24px -12px rgba(38, 51, 59, 0.12);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--color-bone);
+    color: var(--color-carbon);
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+  }
+
+  :focus-visible {
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
