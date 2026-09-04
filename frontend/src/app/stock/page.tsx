@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const ELEMENTOS_POR_PAGINA = 10;
 
 // Interfaces alineadas al modelo de Prisma
 interface ArticleStock {
@@ -14,6 +15,7 @@ interface ArticleStock {
   articles: {
     article_code: string;
     article_name: string;
+    article_state?: boolean;
     article_unit_of_measure: string;
     article_stock_min_general: number;
     categories: {
@@ -40,6 +42,7 @@ export default function StockPage() {
   const [filterLowStock, setFilterLowStock] = useState<boolean>(false);
   const [selectedItem, setSelectedItem] = useState<ArticleStock | null>(null);
   const [lastMovementTime, setLastMovementTime] = useState<string>('Sin registros');
+  const [paginaActual, setPaginaActual] = useState<number>(1);
 
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
   const [showTransferModal, setShowTransferModal] = useState<boolean>(false);
@@ -123,6 +126,11 @@ export default function StockPage() {
     fetchStock();
   }, [fetchStock]);
 
+  // Reiniciar página al cambiar filtros
+  useEffect(() => {
+    setPaginaActual(1);
+  }, [depositId, searchTerm, filterLowStock]);
+
   // 3. Listener para sincronización con la ventana emergente de movimientos
   useEffect(() => {
     const handleStockUpdate = (event: MessageEvent) => {
@@ -138,15 +146,13 @@ export default function StockPage() {
     return () => window.removeEventListener('message', handleStockUpdate);
   }, [fetchStock]);
 
-  // 3.1 Sincronizar los datos en la pagina principal 
+  // 3.1 Sincronizar los datos en la pagina principal
   useEffect(() => {
-    // Suscripción mediante BroadcastChannel (funciona entre pestañas/ventanas del mismo origen)
     const channel = new BroadcastChannel('stock_updates');
     channel.onmessage = () => {
       fetchStock();
     };
 
-    // Escucha secundaria para ventanas secundarias abiertas con window.open
     const handleMessage = (e: MessageEvent) => {
       if (e.data?.type === 'REFRESH_STOCK') {
         fetchStock();
@@ -178,6 +184,13 @@ export default function StockPage() {
     });
   }, [stockList, searchTerm, filterLowStock]);
 
+  // Paginación
+  const totalPaginas = Math.ceil(filteredStock.length / ELEMENTOS_POR_PAGINA) || 1;
+  const stockPaginado = useMemo(() => {
+    const inicio = (paginaActual - 1) * ELEMENTOS_POR_PAGINA;
+    return filteredStock.slice(inicio, inicio + ELEMENTOS_POR_PAGINA);
+  }, [filteredStock, paginaActual]);
+
   // KPIs
   const totalUnidades = useMemo(() => {
     return filteredStock.reduce((acc, curr) => acc + curr.stock_amount, 0);
@@ -207,11 +220,12 @@ export default function StockPage() {
   // Exportar CSV
   const handleExportarCSV = () => {
     if (filteredStock.length === 0) return;
-    const headers = ['ID Stock', 'Codigo', 'Articulo', 'Categoria', 'Deposito', 'Cantidad', 'Unidad'];
+    const headers = ['ID Stock', 'Codigo', 'Articulo', 'Estado', 'Categoria', 'Deposito', 'Cantidad', 'Unidad'];
     const rows = filteredStock.map((item) => [
       item.stock_id,
       item.articles?.article_code,
       `"${item.articles?.article_name}"`,
+      item.articles?.article_state === false ? 'Dado de baja' : 'Activo',
       `"${item.articles?.categories?.category_name || ''}"`,
       `"${item.deposit?.deposit_name || item.deposit_id}"`,
       item.stock_amount,
@@ -320,7 +334,7 @@ export default function StockPage() {
       <header className="bg-white px-8 py-4 border-b border-slate-200 flex items-center justify-between shrink-0 relative">
         <div>
           <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block mb-0.5">
-            STK-03 · ENCARGADO DE STOCK
+            Módulo de Stock
           </span>
           <h2 className="text-3xl font-serif text-[#26333B]">
             {depositId === 'ALL'
@@ -466,7 +480,7 @@ export default function StockPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {filteredStock.length === 0 ? (
+                  {stockPaginado.length === 0 ? (
                     <tr>
                       <td
                         colSpan={4}
@@ -476,42 +490,88 @@ export default function StockPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredStock.map((item) => (
-                      <tr
-                        key={item.stock_id}
-                        onClick={() => setSelectedItem(item)}
-                        className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedItem?.stock_id === item.stock_id
-                            ? 'bg-slate-50 font-medium'
-                            : ''
-                          }`}
-                      >
-                        <td className="py-3.5 px-6 font-mono text-slate-500">
-                          {item.articles?.article_code}
-                        </td>
-                        <td className="py-3.5 px-4 font-semibold text-slate-800">
-                          {item.articles?.article_name}
-                        </td>
-                        <td className="py-3.5 px-4 text-slate-500">
-                          {item.articles?.categories?.category_name || '-'}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-bold text-slate-900">
-                          {item.stock_amount}{' '}
-                          <span className="text-slate-400 font-normal">
-                            {item.articles?.article_unit_of_measure}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
+                    stockPaginado.map((item) => {
+                      const inactivo = item.articles?.article_state === false;
+                      return (
+                        <tr
+                          key={item.stock_id}
+                          onClick={() => setSelectedItem(item)}
+                          className={`hover:bg-slate-50 cursor-pointer transition-colors ${
+                            selectedItem?.stock_id === item.stock_id
+                              ? 'bg-slate-50 font-medium'
+                              : ''
+                          } ${inactivo ? 'bg-slate-50/50 opacity-75' : ''}`}
+                        >
+                          <td className="py-3.5 px-6 font-mono text-slate-500">
+                            {item.articles?.article_code}
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-slate-800">
+                            <div className="flex items-center gap-2">
+                              <span>{item.articles?.article_name}</span>
+                              {inactivo && (
+                                <span className="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700 uppercase tracking-wider">
+                                  Dado de baja
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500">
+                            {item.articles?.categories?.category_name || '-'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-bold text-slate-900">
+                            {item.stock_amount}{' '}
+                            <span className="text-slate-400 font-normal">
+                              {item.articles?.article_unit_of_measure}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             )}
           </div>
 
-          <div className="p-4 border-t border-slate-200 flex justify-between items-center text-xs text-slate-400 shrink-0">
+          {/* CONTROLES DE PAGINACIÓN */}
+          <div className="p-4 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500 shrink-0">
             <span>
-              Mostrando {filteredStock.length} de {stockList.length}
+              Mostrando del{' '}
+              <strong className="text-slate-700">
+                {filteredStock.length === 0 ? 0 : (paginaActual - 1) * ELEMENTOS_POR_PAGINA + 1}
+              </strong>{' '}
+              al{' '}
+              <strong className="text-slate-700">
+                {Math.min(paginaActual * ELEMENTOS_POR_PAGINA, filteredStock.length)}
+              </strong>{' '}
+              de <strong className="text-slate-700">{filteredStock.length}</strong> existencias
             </span>
+
+            {totalPaginas > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={paginaActual === 1}
+                  onClick={() => setPaginaActual((prev) => Math.max(prev - 1, 1))}
+                  className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  Anterior
+                </button>
+                <span className="text-xs text-slate-500 px-1">
+                  Página <strong className="text-slate-800">{paginaActual}</strong> de{' '}
+                  <strong className="text-slate-800">{totalPaginas}</strong>
+                </span>
+                <button
+                  type="button"
+                  disabled={paginaActual === totalPaginas}
+                  onClick={() => setPaginaActual((prev) => Math.min(prev + 1, totalPaginas))}
+                  className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
+
             <span>
               Saldo total:{' '}
               <strong className="text-slate-800">{totalUnidades}</strong>
@@ -526,9 +586,14 @@ export default function StockPage() {
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
                 DETALLE · {selectedItem.articles?.article_code}
               </span>
-              <h3 className="text-xl font-serif text-[#26333B] mb-6">
+              <h3 className="text-xl font-serif text-[#26333B] mb-2">
                 {selectedItem.articles?.article_name}
               </h3>
+              {selectedItem.articles?.article_state === false && (
+                <span className="inline-block mb-4 rounded bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase tracking-wider">
+                  Artículo dado de baja (Solo liquidación)
+                </span>
+              )}
 
               <div className="grid grid-cols-2 gap-4 border-t border-b border-slate-100 py-4 mb-6">
                 <div>
@@ -559,9 +624,13 @@ export default function StockPage() {
                     'Sin asignación'}
                 </p>
                 <p className="text-xs leading-relaxed mt-1 font-medium">
-                  {selectedItem.stock_amount <= (Number(selectedItem.articles?.article_stock_min_general) || 5)
-                    ? '⚠️ Alerta: Stock bajo el nivel recomendado.'
-                    : '✅ Nivel de stock adecuado.'}
+                  {selectedItem.articles?.article_state === false ? (
+                    <span className="text-red-700">⚠️ Discontinuado: Debe liquidarse el stock restante.</span>
+                  ) : selectedItem.stock_amount <= (Number(selectedItem.articles?.article_stock_min_general) || 5) ? (
+                    '⚠️ Alerta: Stock bajo el nivel recomendado.'
+                  ) : (
+                    '✅ Nivel de stock adecuado.'
+                  )}
                 </p>
               </div>
             </div>
@@ -572,20 +641,7 @@ export default function StockPage() {
           )}
 
           <div className="p-4 border-t border-slate-200 flex gap-2 shrink-0">
-            <button
-              onClick={() => setShowTransferModal(true)}
-              disabled={!selectedItem}
-              className="flex-1 py-2 border border-slate-300 rounded text-slate-700 bg-white hover:bg-slate-50 font-medium text-xs disabled:opacity-50"
-            >
-              Transferir
-            </button>
-            <button
-              onClick={() => setShowIngresoModal(true)}
-              disabled={!selectedItem}
-              className="flex-1 py-2 bg-[#26333B] text-white rounded hover:bg-slate-800 font-medium text-xs disabled:opacity-50"
-            >
-              Registrar ingreso
-            </button>
+          
           </div>
         </aside>
       </div>

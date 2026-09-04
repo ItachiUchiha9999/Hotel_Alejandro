@@ -5,16 +5,23 @@ const toId = (value) => {
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 
-/** Número mayor a cero o null. La base exige amount > 0. */
+/**
+ * Entero mayor a cero o null. La base exige amount > 0.
+ * Antes aceptaba decimales (0.01, 1.5, etc.); el stock ahora se maneja
+ * siempre en unidades enteras, así que un valor con decimales se rechaza
+ * en vez de truncarse en silencio.
+ */
 const toPositive = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isInteger(n) && n > 0 ? n : null;
 };
 
-/** Número >= 0 o null. */
+/**
+ * Entero >= 0 o null. Mismo criterio que toPositive: solo enteros.
+ */
 const toNonNegative = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  return Number.isInteger(n) && n >= 0 ? n : null;
 };
 
 /** Texto recortado, o null si queda vacío. */

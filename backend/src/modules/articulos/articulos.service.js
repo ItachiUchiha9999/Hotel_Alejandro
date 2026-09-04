@@ -1,5 +1,5 @@
 const prisma = require('../../db/prisma');
-const { noEncontrado, invalido } = require('../../utils/AppError');
+const { noEncontrado, invalido, conflicto } = require('../../utils/AppError');
 const { toId, toText, toBool, toNonNegative } = require('../../utils/parse');
 
 /**
@@ -58,31 +58,89 @@ const leerDatos = (datos = {}) => ({
   stockMinimo: toNonNegative(datos.stockMinimo ?? datos.article_stock_min_general) ?? 0,
 });
 
+/** Saca acentos para poder comparar/derivar prefijos sin líos de encoding. */
+const quitarAcentos = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Prefijo de 3 letras a partir de la primera palabra del nombre de la
+ * categoría (ej: "Frigobar y Snacks" -> "FRI"). Las categorías cargadas por
+ * el seed original usan a veces la palabra más representativa en vez de la
+ * primera (Ej: "Artículos de Limpieza" -> LIM), así que esto solo aplica
+ * a categorías nuevas, creadas desde la pantalla de Categorías.
+ */
+const prefijoDeCategoria = (nombre) => {
+  const primeraPalabra = quitarAcentos(nombre).trim().split(/\s+/)[0] ?? '';
+  const soloLetras = primeraPalabra.replace(/[^a-zA-Z]/g, '');
+  return (soloLetras.slice(0, 3) || 'ART').toUpperCase().padEnd(3, 'X');
+};
+
+/**
+ * Código automático para el próximo artículo de una categoría: busca el
+ * mayor correlativo ya usado con ese prefijo y devuelve el siguiente
+ * (ej: ya existen BLA-001 y BLA-002 -> devuelve BLA-003). El correlativo
+ * arranca de nuevo en cada categoría.
+ */
+const siguienteCodigo = async (categoriaId) => {
+  const catId = toId(categoriaId);
+  if (!catId) throw invalido('El identificador de la categoría no es válido.');
+
+  const categoria = await prisma.categories.findUnique({ where: { category_id: catId } });
+  if (!categoria) throw noEncontrado('La categoría seleccionada no existe.');
+
+  const prefijo = prefijoDeCategoria(categoria.category_name);
+
+  const existentes = await prisma.articles.findMany({
+    where: { article_code: { startsWith: `${prefijo}-` } },
+    select: { article_code: true },
+  });
+
+  let max = 0;
+  for (const { article_code } of existentes) {
+    const sufijo = article_code.slice(prefijo.length + 1);
+    const num = parseInt(sufijo, 10);
+    if (!Number.isNaN(num) && num > max) max = num;
+  }
+
+  const siguiente = max + 1;
+  const codigo = `${prefijo}-${String(siguiente).padStart(3, '0')}`;
+  return { codigo, prefijo, categoria_id: catId };
+};
+
 const crear = async (body) => {
   const d = leerDatos(body);
 
-  if (!d.codigo) throw invalido('El código del artículo es obligatorio.');
   if (!d.nombre) throw invalido('El nombre del artículo es obligatorio.');
   if (!d.categoriaId) throw invalido('Elegí una categoría para el artículo.');
 
   const categoria = await prisma.categories.findUnique({ where: { category_id: d.categoriaId } });
   if (!categoria) throw noEncontrado('La categoría seleccionada no existe.');
 
-  const creado = await prisma.articles.create({
-    data: {
-      category_id: d.categoriaId,
-      article_code: d.codigo,
-      article_number: d.numero,
-      article_name: d.nombre,
-      article_compound_name: d.nombreCompuesto,
-      article_description: d.descripcion,
-      article_unit_of_measure: d.unidadMedida,
-      article_stock_min_general: d.stockMinimo,
-    },
-    include: { categories: { select: { category_name: true } } },
-  });
+  // El código SIEMPRE se calcula del lado del servidor. Si el cliente manda
+  // algo en "codigo" (por ejemplo, una vista previa vieja), se ignora: la
+  // fuente de verdad del correlativo es la base, justo antes de guardar.
+  const { codigo } = await siguienteCodigo(d.categoriaId);
 
-  return aDTO(creado);
+  try {
+    const creado = await prisma.articles.create({
+      data: {
+        category_id: d.categoriaId,
+        article_code: codigo,
+        article_number: d.numero,
+        article_name: d.nombre,
+        article_compound_name: d.nombreCompuesto,
+        article_description: d.descripcion,
+        article_unit_of_measure: d.unidadMedida,
+        article_stock_min_general: d.stockMinimo,
+      },
+      include: { categories: { select: { category_name: true } } },
+    });
+    return aDTO(creado);
+  } catch (err) {
+    if (err.code === 'P2002') {
+      throw conflicto('Ya se generó ese código justo ahora para otro artículo, probá guardar de nuevo.');
+    }
+    throw err;
+  }
 };
 
 const actualizar = async (id, body) => {
@@ -132,4 +190,4 @@ const cambiarEstado = async (id, estado) => {
   return aDTO(actualizado);
 };
 
-module.exports = { listar, obtener, crear, actualizar, cambiarEstado };
+module.exports = { listar, obtener, crear, actualizar, cambiarEstado, siguienteCodigo };

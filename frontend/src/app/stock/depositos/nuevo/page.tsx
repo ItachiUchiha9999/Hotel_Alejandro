@@ -6,7 +6,7 @@ export default function NuevoDepositoPage() {
   return (
     <>
       <PageHeader
-        eyebrow="STK-01"
+        
         titulo="Nuevo depósito"
         descripcion="Los depósitos nuevos quedan activos y disponibles para recibir movimientos."
       />

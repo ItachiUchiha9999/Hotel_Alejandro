@@ -16,7 +16,7 @@ model articles {
   article_compound_name     String?                  @db.VarChar(200)
   article_description       String?                  @db.VarChar(255)
   article_unit_of_measure   String                   @default("UNIDAD") @db.VarChar(20)
-  article_stock_min_general Decimal                  @default(0.00) @db.Decimal(12, 2)
+  article_stock_min_general Int                      @default(0)
   article_state             Boolean                  @default(true)
   creation_date             DateTime                 @default(now()) @db.Timestamptz(6)
   categories                categories               @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_article_categories")
@@ -30,7 +30,7 @@ model articles_deposit_stock {
   stock_id              Int                     @id @default(autoincrement())
   article_id            Int
   deposit_id            Int
-  stock_amount          Decimal                 @default(0.00) @db.Decimal(12, 2)
+  stock_amount          Int                     @default(0)
   update_date           DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
   articles              articles                @relation(fields: [article_id], references: [article_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_article")
   deposit               deposit                 @relation(fields: [deposit_id], references: [deposit_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_deposit")
@@ -69,6 +69,11 @@ model employees {
   creation_date      DateTime         @default(now()) @db.Timestamptz(6)
   roles              roles            @relation(fields: [rol_id], references: [rol_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employees_rol")
   stock_movement     stock_movement[]
+  supplier_voucher          supplier_voucher[]
+  payment_order             payment_order[]
+  payment_order_reset       payment_order_reset[]
+  supplier_account_movement supplier_account_movement[]
+  expense                   expense[]
 
   @@index([rol_id], map: "idx_employees_rol")
 }
@@ -89,7 +94,7 @@ model movement_stock_detail {
   detail_id              Int                    @id @default(autoincrement())
   stock_movement_id      Int
   stock_id               Int
-  amount                 Decimal                @db.Decimal(12, 2)
+  amount                 Int
   stock_movement         stock_movement         @relation(fields: [stock_movement_id], references: [stock_movement_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_movement")
   articles_deposit_stock articles_deposit_stock @relation(fields: [stock_id], references: [stock_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_detail_stock")
 
@@ -141,4 +146,235 @@ model suppliers {
   supplier_state      Boolean          @default(true)
   creation_date       DateTime         @default(now()) @db.Timestamptz(6)
   stock_movement      stock_movement[]
+  supplier_voucher          supplier_voucher[]
+  payment_order             payment_order[]
+  supplier_account_movement supplier_account_movement[]
+  expense                   expense[]
+}
+
+// ===========================================================================
+// SPRINT 2 — Comprobantes de proveedores y órdenes de pago (PROV-01 a PROV-08)
+// Espejo de database/05_sprint2_proveedores.sql y 07_sprint2_gastos.sql
+// ===========================================================================
+
+/// Catálogo de tipos de comprobante (PROV-02).
+/// `sign` define el efecto sobre la deuda: 1 la aumenta (factura, nota de
+/// débito), -1 la disminuye (nota de crédito). Misma idea que `effect` en
+/// movement_type: la lógica nunca pregunta por el nombre del tipo.
+/// Tiene CHECK en la base: sign IN (-1, 1)
+model voucher_type {
+  voucher_type_id  Int                @id @default(autoincrement())
+  voucher_type     String             @unique @db.VarChar(50)
+  description      String             @db.VarChar(255)
+  sign             Int                @db.SmallInt
+  affects_account  Boolean            @default(true)
+  is_payable       Boolean            @default(true)
+  active           Boolean            @default(true)
+  supplier_voucher supplier_voucher[]
+}
+
+/// Comprobantes recibidos de proveedores (PROV-01, PROV-03).
+/// Tiene CHECK en la base: total_amount > 0, paid_amount entre 0 y total_amount,
+/// voucher_status IN ('PENDIENTE','PAGADO','ANULADO'), due_date >= issue_date.
+/// El estado lo mantiene el trigger tr_sync_voucher_status.
+model supplier_voucher {
+  voucher_id            Int                         @id @default(autoincrement())
+  supplier_id           Int
+  voucher_type_id       Int
+  voucher_point_of_sale String                      @default("0001") @db.VarChar(5)
+  voucher_number        String                      @db.VarChar(20)
+  issue_date            DateTime                    @db.Date
+  due_date              DateTime?                   @db.Date
+  reception_date        DateTime                    @default(now()) @db.Timestamptz(6)
+  total_amount          Decimal                     @db.Decimal(14, 2)
+  paid_amount           Decimal                     @default(0.00) @db.Decimal(14, 2)
+  voucher_status        String                      @default("PENDIENTE") @db.VarChar(20)
+  observations          String?                     @db.VarChar(255)
+  employees_id          Int
+  creation_date         DateTime                    @default(now()) @db.Timestamptz(6)
+  annulled_date         DateTime?                   @db.Timestamptz(6)
+  annulled_reason       String?                     @db.VarChar(255)
+
+  suppliers             suppliers                   @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_supplier")
+  voucher_type          voucher_type                @relation(fields: [voucher_type_id], references: [voucher_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_type")
+  employees             employees                   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_employees")
+  payment_order_detail  payment_order_detail[]
+  supplier_account_movement supplier_account_movement[]
+  expense_voucher       expense_voucher[]
+
+  @@unique([supplier_id, voucher_type_id, voucher_point_of_sale, voucher_number], map: "uq_voucher_supplier_number")
+  @@index([supplier_id], map: "idx_voucher_supplier")
+  @@index([voucher_type_id], map: "idx_voucher_type")
+  @@index([voucher_status], map: "idx_voucher_status")
+  @@index([issue_date], map: "idx_voucher_issue_date")
+  @@index([employees_id], map: "idx_voucher_employees")
+}
+
+/// Formas de pago (PROV-05). `requires_reference` obliga a cargar el número de
+/// cheque o de transferencia; el efectivo no lo necesita.
+model payment_method {
+  payment_method_id  Int             @id @default(autoincrement())
+  payment_method     String          @unique @db.VarChar(50)
+  description        String          @db.VarChar(255)
+  requires_reference Boolean         @default(false)
+  active             Boolean         @default(true)
+  payment_order      payment_order[]
+}
+
+/// Órdenes de pago (PROV-04, PROV-05, PROV-07).
+/// payment_order_status: 0 = borrador, 1 = confirmada, 2 = anulada.
+/// Resetear (PROV-07) es volver de 1 a 0 restituyendo saldos.
+/// total_amount lo mantiene el trigger tr_sync_payment_order_total.
+model payment_order {
+  payment_order_id     Int                    @id @default(autoincrement())
+  supplier_id          Int
+  payment_method_id    Int
+  payment_date         DateTime               @db.Date
+  total_amount         Decimal                @default(0.00) @db.Decimal(14, 2)
+  payment_reference    String?                @db.VarChar(100)
+  payment_order_status Int                    @default(0) @db.SmallInt
+  observations         String?                @db.VarChar(255)
+  employees_id         Int
+  creation_date        DateTime               @default(now()) @db.Timestamptz(6)
+  confirmed_date       DateTime?              @db.Timestamptz(6)
+
+  suppliers            suppliers              @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_supplier")
+  payment_method       payment_method         @relation(fields: [payment_method_id], references: [payment_method_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_method")
+  employees            employees              @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_employee")
+  payment_order_detail payment_order_detail[]
+  payment_order_reset  payment_order_reset[]
+  supplier_account_movement supplier_account_movement[]
+  expense_payment_order expense_payment_order[]
+
+  @@index([supplier_id], map: "idx_payment_order_supplier")
+  @@index([payment_date], map: "idx_payment_order_date")
+  @@index([payment_order_status], map: "idx_payment_order_status")
+  @@index([payment_method_id], map: "idx_payment_order_method")
+}
+
+/// Qué importe de la orden se aplica a cada comprobante (PROV-04).
+/// El trigger tr_validate_payment_detail valida que el comprobante sea del
+/// mismo proveedor y que el importe no supere el saldo pendiente.
+/// Tiene CHECK en la base: applied_amount > 0.
+model payment_order_detail {
+  detail_id        Int              @id @default(autoincrement())
+  payment_order_id Int
+  voucher_id       Int
+  applied_amount   Decimal          @db.Decimal(14, 2)
+
+  payment_order    payment_order    @relation(fields: [payment_order_id], references: [payment_order_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_payment_order")
+  supplier_voucher supplier_voucher @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_detail_voucher")
+
+  @@unique([payment_order_id, voucher_id], map: "uq_payment_order_voucher")
+  @@index([voucher_id], map: "idx_payment_detail_voucher")
+}
+
+/// Auditoría de reseteos (PROV-07). Una orden puede resetearse más de una vez,
+/// así que cada reseteo deja su propia fila con quién, cuándo y por qué.
+model payment_order_reset {
+  reset_id         Int           @id @default(autoincrement())
+  payment_order_id Int
+  employees_id     Int
+  reset_date       DateTime      @default(now()) @db.Timestamptz(6)
+  restored_amount  Decimal       @db.Decimal(14, 2)
+  reset_reason     String        @db.VarChar(255)
+
+  payment_order    payment_order @relation(fields: [payment_order_id], references: [payment_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reset_payment_order")
+  employees        employees     @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reset_employee")
+
+  @@index([payment_order_id], map: "idx_reset_payment_order")
+}
+
+/// Libro mayor de cada proveedor (PROV-05, PROV-06). APPEND-ONLY: las filas no
+/// se editan ni se borran. Revertir un pago agrega un movimiento contrario que
+/// apunta al original con reversal_of_movement_id.
+/// El saldo no se guarda: sale de sumar debe y haber (v_supplier_account_balance).
+/// Tiene CHECK en la base: debit y credit >= 0, y solo uno de los dos > 0.
+model supplier_account_movement {
+  account_movement_id     Int                        @id @default(autoincrement())
+  supplier_id             Int
+  movement_date           DateTime                   @default(now()) @db.Timestamptz(6)
+  concept                 String                     @db.VarChar(150)
+  debit                   Decimal                    @default(0.00) @db.Decimal(14, 2)
+  credit                  Decimal                    @default(0.00) @db.Decimal(14, 2)
+  voucher_id              Int?
+  payment_order_id        Int?
+  reversal_of_movement_id Int?
+  employees_id            Int
+  creation_date           DateTime                   @default(now()) @db.Timestamptz(6)
+
+  suppliers               suppliers                  @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_supplier")
+  supplier_voucher        supplier_voucher?          @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_voucher")
+  payment_order           payment_order?             @relation(fields: [payment_order_id], references: [payment_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_payment_order")
+  reversal_of             supplier_account_movement? @relation("account_reversal", fields: [reversal_of_movement_id], references: [account_movement_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_reversal")
+  reversed_by             supplier_account_movement[] @relation("account_reversal")
+  employees               employees                  @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_employee")
+
+  @@index([supplier_id, movement_date], map: "idx_account_supplier")
+  @@index([voucher_id], map: "idx_account_voucher")
+  @@index([payment_order_id], map: "idx_account_payment_order")
+}
+
+// ---------------------------------------------------------------------------
+// PROV-08 — Control de gastos. Se despliega con 07_sprint2_gastos.sql, que es
+// un script aparte porque esta historia es la candidata a salir del sprint.
+// ---------------------------------------------------------------------------
+
+model expense_category {
+  expense_category_id   Int       @id @default(autoincrement())
+  expense_category_name String    @unique @db.VarChar(100)
+  description           String?   @db.VarChar(255)
+  active                Boolean   @default(true)
+  expense               expense[]
+}
+
+/// El importe del gasto NO se guarda: sale de sumar los comprobantes
+/// vinculados. Guardarlo permitiría que el total de gastos difiera del total
+/// de comprobantes, que es justo lo que el criterio de aceptación pide evitar.
+model expense {
+  expense_id            Int                     @id @default(autoincrement())
+  expense_category_id   Int
+  supplier_id           Int?
+  expense_date          DateTime                @db.Date
+  description           String                  @db.VarChar(255)
+  expense_status        String                  @default("REGISTRADO") @db.VarChar(20)
+  employees_id          Int
+  creation_date         DateTime                @default(now()) @db.Timestamptz(6)
+
+  expense_category      expense_category        @relation(fields: [expense_category_id], references: [expense_category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_expense_category")
+  suppliers             suppliers?              @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_expense_supplier")
+  employees             employees               @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_expense_employee")
+  expense_voucher       expense_voucher[]
+  expense_payment_order expense_payment_order[]
+
+  @@index([expense_category_id], map: "idx_expense_category")
+  @@index([supplier_id], map: "idx_expense_supplier")
+  @@index([expense_date], map: "idx_expense_date")
+}
+
+/// N:M entre gastos y comprobantes. `allocated_amount` permite repartir una
+/// misma factura entre varios gastos (por ejemplo, dos sectores del hotel).
+model expense_voucher {
+  expense_voucher_id Int              @id @default(autoincrement())
+  expense_id         Int
+  voucher_id         Int
+  allocated_amount   Decimal          @db.Decimal(14, 2)
+
+  expense            expense          @relation(fields: [expense_id], references: [expense_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_expense_voucher_expense")
+  supplier_voucher   supplier_voucher @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_expense_voucher_voucher")
+
+  @@unique([expense_id, voucher_id], map: "uq_expense_voucher")
+  @@index([voucher_id], map: "idx_expense_voucher_voucher")
+}
+
+model expense_payment_order {
+  expense_payment_id Int           @id @default(autoincrement())
+  expense_id         Int
+  payment_order_id   Int
+
+  expense            expense       @relation(fields: [expense_id], references: [expense_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_expense_payment_expense")
+  payment_order      payment_order @relation(fields: [payment_order_id], references: [payment_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_expense_payment_order")
+
+  @@unique([expense_id, payment_order_id], map: "uq_expense_payment_order")
+  @@index([payment_order_id], map: "idx_expense_payment_order")
 }

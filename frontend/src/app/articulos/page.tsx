@@ -3,45 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
-  Badge, Button, Card, CardFooter, EmptyState, Field, FieldGrid,
-  InfoBox, Input, Select, Table, THead, TH, TBody, TR, TD,
+  Badge, Button, Card, EmptyState, InfoBox, Input, Select,
+  Table, THead, TH, TBody, TR, TD,
 } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { Articulo, Categoria } from "@/lib/types";
 
 type FiltroEstado = "todos" | "activos" | "inactivos";
 
-interface FormArticulo {
-  codigo: string;
-  numero: string;
-  nombre: string;
-  nombreCompuesto: string;
-  categoriaId: string;
-  unidadMedida: string;
-  stockMinimo: string;
-  descripcion: string;
-}
-
-const FORM_VACIO: FormArticulo = {
-  codigo: "",
-  numero: "",
-  nombre: "",
-  nombreCompuesto: "",
-  categoriaId: "",
-  unidadMedida: "UNIDAD",
-  stockMinimo: "0",
-  descripcion: "",
-};
-
-const UNIDADES = ["UNIDAD", "CAJA", "BIDON", "PAQUETE", "LITRO", "KILO"];
-
 /**
  * Catálogo de artículos (STK-02).
  *
- * Antes esta pantalla renderizaba su propio sidebar y su propia cabecera de
- * marca, así que el menú aparecía duplicado dentro del AppShell. Además leía la
- * respuesta del backend como un array pelado, cuando la API devuelve
- * { ok, data }: por eso fallaba con "el formato no es el esperado".
+ * "Nuevo artículo" y "Ficha" ya no abren un panel inline: abren una ventana
+ * emergente (window.open), mismo patrón que "Registrar movimiento" en
+ * /stock. Cuando esa ventana termina de guardar, avisa acá por
+ * BroadcastChannel (y por postMessage, como respaldo) para refrescar la
+ * tabla sin que haga falta recargar la página a mano.
  */
 export default function CatalogoArticulosPage() {
   const [articulos, setArticulos] = useState<Articulo[]>([]);
@@ -53,13 +30,9 @@ export default function CatalogoArticulosPage() {
   const [filtroCategoria, setFiltroCategoria] = useState("todas");
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("todos");
 
-  const [seleccionado, setSeleccionado] = useState<Articulo | null>(null);
-  const [form, setForm] = useState<FormArticulo>(FORM_VACIO);
-  const [modoAlta, setModoAlta] = useState(false);
-  const [errorForm, setErrorForm] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
+  const [errorAccion, setErrorAccion] = useState<string | null>(null);
 
-  const cargar = useCallback(async (mantenerSeleccion = false) => {
+  const cargar = useCallback(async () => {
     setCargando(true);
     setErrorCarga(null);
     try {
@@ -69,11 +42,6 @@ export default function CatalogoArticulosPage() {
       ]);
       setArticulos(arts);
       setCategorias(cats);
-
-      if (mantenerSeleccion && seleccionado) {
-        const actualizado = arts.find((a) => a.article_id === seleccionado.article_id);
-        setSeleccionado(actualizado ?? null);
-      }
     } catch (err) {
       setErrorCarga(
         err instanceof ApiError ? err.message : "No se pudo cargar el catálogo.",
@@ -81,12 +49,31 @@ export default function CatalogoArticulosPage() {
     } finally {
       setCargando(false);
     }
-    // seleccionado se lee solo para refrescar la ficha abierta
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     cargar();
+  }, [cargar]);
+
+  // Escucha la ventana emergente de alta/edición de artículos.
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "ARTICULO_UPDATED") cargar();
+    };
+    window.addEventListener("message", handleMessage);
+
+    let channel: BroadcastChannel | undefined;
+    try {
+      channel = new BroadcastChannel("articulos_updates");
+      channel.onmessage = () => cargar();
+    } catch {
+      /* BroadcastChannel no disponible en este navegador: queda solo postMessage */
+    }
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      channel?.close();
+    };
   }, [cargar]);
 
   const visibles = useMemo(() => {
@@ -103,98 +90,40 @@ export default function CatalogoArticulosPage() {
     });
   }, [articulos, busqueda, filtroCategoria, filtroEstado]);
 
-  function abrirFicha(articulo: Articulo) {
-    setModoAlta(false);
-    setErrorForm(null);
-    setSeleccionado(articulo);
-    setForm({
-      codigo: articulo.article_code,
-      numero: articulo.article_number ?? "",
-      nombre: articulo.article_name,
-      nombreCompuesto: articulo.article_compound_name ?? "",
-      categoriaId: String(articulo.category_id),
-      unidadMedida: articulo.article_unit_of_measure,
-      stockMinimo: String(articulo.article_stock_min_general),
-      descripcion: articulo.article_description ?? "",
-    });
+  /** Abre una ventana emergente centrada, mismo tamaño que "Registrar movimiento". */
+  function abrirVentana(ruta: string) {
+    const width = 960;
+    const height = 750;
+    const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+    const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+
+    window.open(
+      ruta,
+      "_blank",
+      `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`,
+    );
   }
 
-  function abrirAlta() {
-    setSeleccionado(null);
-    setModoAlta(true);
-    setErrorForm(null);
-    setForm({ ...FORM_VACIO, categoriaId: String(categorias[0]?.category_id ?? "") });
-  }
-
-  function cerrarPanel() {
-    setSeleccionado(null);
-    setModoAlta(false);
-    setErrorForm(null);
-  }
-
-  const set = <K extends keyof FormArticulo>(campo: K, valor: string) =>
-    setForm((f) => ({ ...f, [campo]: valor }));
-
-  async function guardar(e: React.FormEvent) {
-    e.preventDefault();
-    setErrorForm(null);
-
-    if (!form.codigo.trim()) return setErrorForm("El código es obligatorio.");
-    if (!form.nombre.trim()) return setErrorForm("El nombre es obligatorio.");
-    if (!form.categoriaId) return setErrorForm("Elegí una categoría.");
-
-    const minimo = Number(form.stockMinimo);
-    if (!Number.isFinite(minimo) || minimo < 0) {
-      return setErrorForm("El stock mínimo tiene que ser un número mayor o igual a cero.");
-    }
-
-    setGuardando(true);
-    try {
-      const cuerpo = {
-        codigo: form.codigo.trim(),
-        numero: form.numero.trim() || null,
-        nombre: form.nombre.trim(),
-        nombreCompuesto: form.nombreCompuesto.trim() || null,
-        categoriaId: Number(form.categoriaId),
-        unidadMedida: form.unidadMedida,
-        stockMinimo: minimo,
-        descripcion: form.descripcion.trim() || null,
-      };
-
-      if (modoAlta) {
-        await api.post("/articulos", cuerpo);
-      } else if (seleccionado) {
-        await api.put(`/articulos/${seleccionado.article_id}`, cuerpo);
-      }
-
-      cerrarPanel();
-      await cargar();
-    } catch (err) {
-      setErrorForm(err instanceof ApiError ? err.message : "No se pudo guardar el artículo.");
-    } finally {
-      setGuardando(false);
-    }
-  }
+  const abrirAlta = () => abrirVentana("/articulos/nuevo");
+  const abrirFicha = (articulo: Articulo) => abrirVentana(`/articulos/${articulo.article_id}`);
 
   async function alternarEstado(articulo: Articulo) {
     try {
       await api.patch(`/articulos/${articulo.article_id}/estado`, {
         estado: !articulo.article_state,
       });
-      await cargar(true);
+      await cargar();
     } catch (err) {
-      setErrorForm(err instanceof ApiError ? err.message : "No se pudo cambiar el estado.");
+      setErrorAccion(err instanceof ApiError ? err.message : "No se pudo cambiar el estado.");
     }
   }
-
-  const panelAbierto = modoAlta || Boolean(seleccionado);
 
   return (
     <>
       <PageHeader
-        eyebrow="STK-02"
+        eyebrow=""
         titulo="Catálogo de artículos"
-        descripcion="Insumos que el hotel compra y consume. Dar de baja un artículo lo oculta de los movimientos sin borrar su historial."
+        descripcion=""
         acciones={<Button onClick={abrirAlta}>Nuevo artículo</Button>}
       />
 
@@ -246,6 +175,7 @@ export default function CatalogoArticulosPage() {
             </button>
           </InfoBox>
         )}
+        {errorAccion && <InfoBox tipo="error">{errorAccion}</InfoBox>}
 
         {cargando ? (
           <p className="py-10 text-center text-sm text-carbon/50">Cargando catálogo…</p>
@@ -314,124 +244,6 @@ export default function CatalogoArticulosPage() {
           </Table>
         )}
       </Card>
-
-      {panelAbierto && (
-        <div className="mt-6">
-          <Card
-            titulo={modoAlta ? "Nuevo artículo" : `Ficha de ${seleccionado?.article_name}`}
-            descripcion={
-              modoAlta
-                ? "El código no se puede repetir y queda fijo como identificador del insumo."
-                : "Los cambios impactan en el catálogo y en las pantallas de stock."
-            }
-          >
-            <form onSubmit={guardar} className="space-y-6">
-              <FieldGrid>
-                <Field label="Código" htmlFor="codigo" requerido ayuda="Por ejemplo: BLA-001">
-                  <Input
-                    id="codigo"
-                    value={form.codigo}
-                    onChange={(e) => set("codigo", e.target.value)}
-                    className="font-mono"
-                    disabled={!modoAlta}
-                  />
-                </Field>
-
-                <Field label="Número interno" htmlFor="numero">
-                  <Input
-                    id="numero"
-                    value={form.numero}
-                    onChange={(e) => set("numero", e.target.value)}
-                  />
-                </Field>
-
-                <Field label="Nombre" htmlFor="nombre" requerido>
-                  <Input
-                    id="nombre"
-                    value={form.nombre}
-                    onChange={(e) => set("nombre", e.target.value)}
-                  />
-                </Field>
-
-                <Field
-                  label="Nombre compuesto"
-                  htmlFor="compuesto"
-                  ayuda="Nombre largo que se usa en remitos."
-                >
-                  <Input
-                    id="compuesto"
-                    value={form.nombreCompuesto}
-                    onChange={(e) => set("nombreCompuesto", e.target.value)}
-                  />
-                </Field>
-
-                <Field label="Categoría" htmlFor="categoria" requerido>
-                  <Select
-                    id="categoria"
-                    value={form.categoriaId}
-                    onChange={(e) => set("categoriaId", e.target.value)}
-                  >
-                    <option value="">Elegir…</option>
-                    {categorias.map((c) => (
-                      <option key={c.category_id} value={c.category_id}>
-                        {c.category_name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-
-                <Field label="Unidad de medida" htmlFor="unidad">
-                  <Select
-                    id="unidad"
-                    value={form.unidadMedida}
-                    onChange={(e) => set("unidadMedida", e.target.value)}
-                  >
-                    {UNIDADES.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-
-                <Field
-                  label="Stock mínimo"
-                  htmlFor="minimo"
-                  ayuda="Por debajo de este valor, el artículo se marca en el panel."
-                >
-                  <Input
-                    id="minimo"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.stockMinimo}
-                    onChange={(e) => set("stockMinimo", e.target.value)}
-                  />
-                </Field>
-
-                <Field label="Descripción" htmlFor="descripcion" className="md:col-span-2">
-                  <Input
-                    id="descripcion"
-                    value={form.descripcion}
-                    onChange={(e) => set("descripcion", e.target.value)}
-                  />
-                </Field>
-              </FieldGrid>
-
-              {errorForm && <InfoBox tipo="error">{errorForm}</InfoBox>}
-
-              <CardFooter>
-                <Button type="button" variante="secundario" onClick={cerrarPanel}>
-                  Cancelar
-                </Button>
-                <Button type="submit" cargando={guardando}>
-                  {modoAlta ? "Crear artículo" : "Guardar cambios"}
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
-        </div>
-      )}
     </>
   );
 }

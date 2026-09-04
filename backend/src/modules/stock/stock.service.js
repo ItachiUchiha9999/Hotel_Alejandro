@@ -20,7 +20,12 @@ const EFFECT = {
 /** Saldo consolidado de todos los depósitos (STK-03). */
 const getSaldoConsolidado = async () =>
   prisma.articles_deposit_stock.findMany({
-    where: { articles: { article_state: true } },
+    where: {
+      OR: [
+        { articles: { article_state: true } },
+        { stock_amount: { gt: 0 } },
+      ],
+    },
     select: {
       stock_id: true,
       stock_amount: true,
@@ -30,6 +35,7 @@ const getSaldoConsolidado = async () =>
           article_id: true,
           article_code: true,
           article_name: true,
+          article_state: true,
           article_unit_of_measure: true,
           article_stock_min_general: true,
         },
@@ -39,7 +45,7 @@ const getSaldoConsolidado = async () =>
     orderBy: [{ deposit: { deposit_name: 'asc' } }, { articles: { article_name: 'asc' } }],
   });
 
-/** Saldo de un depósito puntual. */
+/** Saldo de un depósito puntual con estado del artículo incluido. */
 const getStockPorDeposito = async (depositoId) => {
   const depositId = toId(depositoId);
   if (!depositId) throw invalido('El identificador del depósito no es válido.');
@@ -48,20 +54,32 @@ const getStockPorDeposito = async (depositoId) => {
   if (!deposito) throw noEncontrado('El depósito no existe.');
 
   return prisma.articles_deposit_stock.findMany({
-    where: { deposit_id: depositId },
+    where: {
+      deposit_id: depositId,
+      OR: [
+        { articles: { article_state: true } },
+        { stock_amount: { gt: 0 } },
+      ],
+    },
     include: {
-      articles: { include: { categories: { select: { category_name: true } } } },
+      articles: {
+        select: {
+          article_id: true,
+          article_code: true,
+          article_name: true,
+          article_state: true,
+          article_unit_of_measure: true,
+          article_stock_min_general: true,
+          categories: { select: { category_name: true } },
+        },
+      },
       deposit: true,
     },
     orderBy: { articles: { article_name: 'asc' } },
   });
 };
 
-/**
- * Tipos de movimiento activos (STK-04).
- * El frontend arma sus opciones con esto, así nunca puede mandar un tipo
- * que no exista en la base.
- */
+/** Tipos de movimiento activos (STK-04). */
 const getTiposMovimiento = async () =>
   prisma.movement_type.findMany({
     where: { active: true },
@@ -85,7 +103,7 @@ const includeMovimiento = {
     include: {
       articles_deposit_stock: {
         include: {
-          articles: { select: { article_code: true, article_name: true } },
+          articles: { select: { article_code: true, article_name: true, article_state: true } },
           deposit: { select: { deposit_id: true, deposit_name: true } },
         },
       },
@@ -93,19 +111,30 @@ const includeMovimiento = {
   },
 };
 
-/** Historial filtrable por depósito y por tipo (STK-05). */
-const getHistorial = async ({ deposito, tipo } = {}) => {
-  const depositoId = toId(deposito);
+/** Historial filtrable por tipo, depósito de origen y/o destino, y rango de fechas (STK-05). */
+const getHistorial = async ({ origen, destino, tipo, desde, hasta } = {}) => {
+  const origenId = toId(origen);
+  const destinoId = toId(destino);
   const tipoTexto = toText(tipo);
+
+  const dateFilter = {};
+
+  if (desde) {
+    const [year, month, day] = desde.split('-').map(Number);
+    dateFilter.gte = new Date(year, month - 1, day, 0, 0, 0, 0);
+  }
+
+  if (hasta) {
+    const [year, month, day] = hasta.split('-').map(Number);
+    dateFilter.lte = new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
 
   return prisma.stock_movement.findMany({
     where: {
       ...(tipoTexto ? { movement_type: { movement_type: tipoTexto } } : {}),
-      ...(depositoId
-        ? {
-            OR: [{ deposit_origin_id: depositoId }, { deposit_destination_id: depositoId }],
-          }
-        : {}),
+      ...(origenId ? { deposit_origin_id: origenId } : {}),
+      ...(destinoId ? { deposit_destination_id: destinoId } : {}),
+      ...(Object.keys(dateFilter).length > 0 ? { transaction_date: dateFilter } : {}),
     },
     include: includeMovimiento,
     orderBy: { transaction_date: 'desc' },
@@ -116,11 +145,6 @@ const getHistorial = async ({ deposito, tipo } = {}) => {
 // Operaciones atómicas sobre el stock
 // ---------------------------------------------------------------------------
 
-/**
- * Suma stock. Si el artículo nunca estuvo en ese depósito, crea la fila.
- * Usa `increment` para que dos movimientos simultáneos no se pisen: el cálculo
- * lo hace PostgreSQL, no JavaScript.
- */
 const sumarStock = async (tx, articleId, depositId, cantidad) => {
   const stock = await tx.articles_deposit_stock.upsert({
     where: { article_id_deposit_id: { article_id: articleId, deposit_id: depositId } },
@@ -130,12 +154,6 @@ const sumarStock = async (tx, articleId, depositId, cantidad) => {
   return stock.stock_id;
 };
 
-/**
- * Resta stock con un UPDATE condicional: solo descuenta si la fila todavía
- * tiene saldo suficiente en ese instante. Si otro movimiento se adelantó,
- * `count` queda en 0 y la transacción se revierte con un mensaje claro, en
- * lugar de dejar el stock en negativo o chocar contra el CHECK de la base.
- */
 const restarStock = async (tx, articleId, depositId, cantidad, codigo) => {
   const stock = await tx.articles_deposit_stock.findUnique({
     where: { article_id_deposit_id: { article_id: articleId, deposit_id: depositId } },
@@ -165,17 +183,6 @@ const restarStock = async (tx, articleId, depositId, cantidad, codigo) => {
 // Alta de movimiento (STK-05)
 // ---------------------------------------------------------------------------
 
-/**
- * Normaliza el renglón de artículos.
- *
- * Se aceptan dos formas:
- *   - multi-artículo: { details: [{ articleId | article_code, amount }] }
- *   - un solo artículo: { article_code, amount }
- *
- * Los renglones repetidos del mismo artículo se suman en uno solo, porque
- * movement_stock_detail tiene UNIQUE (stock_movement_id, stock_id) y dos filas
- * del mismo artículo violarían esa restricción.
- */
 const normalizarItems = (payload) => {
   const crudos =
     Array.isArray(payload.details) && payload.details.length
@@ -185,7 +192,7 @@ const normalizarItems = (payload) => {
   const items = crudos.map((d, i) => {
     const cantidad = toPositive(d.amount ?? d.cantidad);
     if (!cantidad) {
-      throw invalido(`La cantidad del renglón ${i + 1} tiene que ser mayor a cero.`);
+      throw invalido(`La cantidad del renglón ${i + 1} tiene que ser un número entero mayor a cero.`);
     }
 
     const articleId = toId(d.articleId ?? d.article_id);
@@ -197,7 +204,6 @@ const normalizarItems = (payload) => {
     return { articleId, codigo, cantidad };
   });
 
-  // Se fusionan los renglones repetidos del mismo artículo.
   const fusionados = new Map();
   for (const item of items) {
     const clave = item.articleId ?? item.codigo.toUpperCase();
@@ -211,46 +217,25 @@ const normalizarItems = (payload) => {
   return [...fusionados.values()];
 };
 
-/** Busca el artículo por id o por código y valida que se pueda mover. */
-const resolverArticulo = async (item) => {
+const resolverArticulo = async (item, tipo) => {
   const articulo = item.articleId
     ? await prisma.articles.findUnique({ where: { article_id: item.articleId } })
     : await prisma.articles.findUnique({ where: { article_code: item.codigo } });
 
   const referencia = item.codigo ?? `#${item.articleId}`;
   if (!articulo) throw noEncontrado(`No existe ningún artículo con la referencia ${referencia}.`);
-  if (!articulo.article_state) {
-    throw conflicto(`El artículo ${articulo.article_code} está dado de baja.`);
+
+  // Solo se permiten salidas (EGRESO, CONSUMO) para artículos dados de baja
+  if (!articulo.article_state && tipo.effect !== EFFECT.RESTA) {
+    throw conflicto(
+      `El artículo ${articulo.article_code} está dado de baja. Solo se permiten movimientos de egreso o consumo para liquidar su stock.`
+    );
   }
 
   return { ...item, articulo };
 };
 
-/**
- * Registra un movimiento de stock (STK-05).
- *
- * Payload:
- * {
- *   movement_type_id:       number,        // obligatorio, FK a movement_type
- *   details:                [{ article_code | articleId, amount }],
- *   deposit_origin_id:      number | null, // según el efecto del tipo
- *   deposit_destination_id: number | null, // según el efecto del tipo
- *   supplier_id:            number | null, // opcional
- *   employees_id:           number | null, // lo inyecta el controller
- *   observations:           string | null
- * }
- *
- * Un movimiento puede llevar VARIOS artículos: van todos bajo una misma
- * cabecera y, si falla cualquier renglón, se revierte el movimiento completo.
- *
- * La dirección NO se decide por el nombre del tipo sino por su columna
- * `effect`. Así, cualquier tipo nuevo dado de alta desde la ABM de STK-04
- * funciona sin tocar este archivo.
- */
 const crearMovimiento = async (payload = {}) => {
-  // ---- 1. Tipo de movimiento ----
-  // Se acepta por id (forma nueva) o por nombre (forma vieja de las pantallas
-  // de stock y transferencias, y de la rama STK-05).
   let typeId = toId(payload.movement_type_id);
 
   if (!typeId) {
@@ -275,13 +260,11 @@ const crearMovimiento = async (payload = {}) => {
     throw new Error(`El tipo "${tipo.movement_type}" tiene un efecto no soportado: ${tipo.effect}`);
   }
 
-  // ---- 2. Artículos ----
   const items = [];
   for (const item of normalizarItems(payload)) {
-    items.push(await resolverArticulo(item));
+    items.push(await resolverArticulo(item, tipo));
   }
 
-  // ---- 3. Depósitos según el efecto ----
   const necesitaOrigen = tipo.effect === EFFECT.RESTA || tipo.effect === EFFECT.TRANSFERENCIA;
   const necesitaDestino = tipo.effect === EFFECT.SUMA || tipo.effect === EFFECT.TRANSFERENCIA;
 
@@ -290,12 +273,6 @@ const crearMovimiento = async (payload = {}) => {
     ? toId(payload.deposit_destination_id ?? payload.destinationDepositId)
     : null;
 
-  /**
-   * Compatibilidad con el payload viejo: cuando deposit_origin_id era NOT NULL,
-   * las pantallas mandaban el depósito de DESTINO en el campo de origen para
-   * los ingresos. Si llega un movimiento que suma sin destino pero con origen,
-   * se interpreta ese origen como el destino real.
-   */
   if (necesitaDestino && !destinoId && !necesitaOrigen) {
     destinoId = toId(payload.deposit_origin_id ?? payload.depositId);
   }
@@ -315,7 +292,6 @@ const crearMovimiento = async (payload = {}) => {
   const inactivo = depositos.find((d) => !d.deposit_state);
   if (inactivo) throw conflicto(`El depósito "${inactivo.deposit_name}" está inactivo.`);
 
-  // ---- 4. Empleado y proveedor ----
   const employeeId = toId(payload.employees_id ?? payload.employeeId) || env.DEFAULT_EMPLOYEE_ID;
   const empleado = await prisma.employees.findUnique({ where: { employees_id: employeeId } });
   if (!empleado) {
@@ -328,10 +304,7 @@ const crearMovimiento = async (payload = {}) => {
     if (!proveedor) throw noEncontrado('El proveedor seleccionado no existe.');
   }
 
-  // ---- 5. Transacción ----
   return prisma.$transaction(async (tx) => {
-    // Una fila de detalle por cada fila de stock afectada. En una
-    // transferencia son dos por artículo: la de origen y la de destino.
     const detalles = [];
 
     for (const item of items) {

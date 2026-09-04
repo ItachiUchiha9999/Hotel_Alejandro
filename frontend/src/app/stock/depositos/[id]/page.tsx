@@ -33,9 +33,9 @@ export default function EditarDepositoPage() {
   return (
     <>
       <PageHeader
-        eyebrow="STK-01"
+        eyebrow=""
         titulo="Editar depósito"
-        descripcion="Los cambios impactan de inmediato en los movimientos de stock."
+        descripcion=""
       />
 
       <Card>

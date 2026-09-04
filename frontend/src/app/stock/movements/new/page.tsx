@@ -113,8 +113,8 @@ if (tiposDisponibles.length === 0) {
     const cantidad = Number(cantidadRenglon);
 
     if (!codigo) return setErrorForm("Elegí un artículo para agregar.");
-    if (!Number.isFinite(cantidad) || cantidad <= 0) {
-      return setErrorForm("La cantidad tiene que ser mayor a cero.");
+    if (!Number.isInteger(cantidad) || cantidad <= 0) {
+      return setErrorForm("La cantidad tiene que ser un número entero mayor a cero.");
     }
 
     const articulo = articulos.find((a) => a.article_code.toUpperCase() === codigo);
@@ -181,9 +181,9 @@ if (tiposDisponibles.length === 0) {
   return (
     <>
       <PageHeader
-        eyebrow="STK-05"
+        eyebrow=""
         titulo="Registrar movimiento de stock"
-        descripcion="Un movimiento puede incluir varios artículos. Se registran juntos: si alguno falla, no se guarda ninguno."
+        descripcion=""
       />
 
       {errorCarga && (
@@ -310,8 +310,8 @@ if (tiposDisponibles.length === 0) {
                 <Input
                   id="cantidad"
                   type="number"
-                  min="0.01"
-                  step="0.01"
+                  min="1"
+                  step="1"
                   value={cantidadRenglon}
                   onChange={(e) => setCantidadRenglon(e.target.value)}
                   disabled={bloqueado}

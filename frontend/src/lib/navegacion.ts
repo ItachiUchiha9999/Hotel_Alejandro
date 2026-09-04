@@ -5,6 +5,11 @@
  * Las rutas de acá tienen que coincidir con las carpetas de src/app.
  * (El menú anterior apuntaba a /deposits, /articles y /reports, que nunca
  * existieron como páginas: todos esos enlaces daban 404.)
+ *
+ * "Reportes" agrupa Saldo consolidado e Historial como acceso directo,
+ * además de seguir estando disponibles dentro de "Stock" (mismas rutas,
+ * dos puntos de entrada). Pendiente: ocultar este ítem para roles
+ * distintos de ADMINISTRADOR una vez esté el login real conectado a roles.
  */
 
 export interface ItemNavegacion {
@@ -16,16 +21,24 @@ export interface ItemNavegacion {
 export const MODULOS: ItemNavegacion[] = [
   { nombre: "Inicio", ruta: "/" },
   { nombre: "Artículos", ruta: "/articulos" },
+  { nombre: "Categorías", ruta: "/categorias" },
+ 
   {
     nombre: "Stock",
     ruta: "/stock",
     hijos: [
       { nombre: "Stock por depósito", ruta: "/stock" },
-      { nombre: "Saldo consolidado", ruta: "/stock/saldo" },
       { nombre: "Depósitos", ruta: "/stock/depositos" },
-      { nombre: "Registrar movimiento", ruta: "/stock/movements/new" },
       { nombre: "Tipos de movimiento", ruta: "/stock/tipos-movimiento" },
       { nombre: "Transferencias", ruta: "/stock/transfers" },
+      
+    ],
+  },
+   {
+    nombre: "Reportes",
+    ruta: "/reportes",
+    hijos: [
+      { nombre: "Saldo consolidado", ruta: "/stock/saldo" },
       { nombre: "Historial", ruta: "/stock/historial" },
     ],
   },

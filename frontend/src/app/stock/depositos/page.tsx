@@ -58,9 +58,9 @@ export default function DepositosPage() {
   return (
     <>
       <PageHeader
-        eyebrow="STK-01"
+        eyebrow=""
         titulo="Depósitos"
-        descripcion="Lugares físicos donde el hotel guarda insumos. Un depósito inactivo no puede recibir ni entregar mercadería."
+        descripcion=""
         acciones={
           <Link href="/stock/depositos/nuevo">
             <Button>Nuevo depósito</Button>

@@ -11,6 +11,11 @@ const obtener = asyncHandler(async (req, res) => {
   res.json({ ok: true, data });
 });
 
+const siguienteCodigo = asyncHandler(async (req, res) => {
+  const data = await service.siguienteCodigo(req.params.categoriaId);
+  res.json({ ok: true, data });
+});
+
 const crear = asyncHandler(async (req, res) => {
   const data = await service.crear(req.body);
   res.status(201).json({ ok: true, message: 'Artículo creado.', data });
@@ -26,4 +31,4 @@ const cambiarEstado = asyncHandler(async (req, res) => {
   res.json({ ok: true, message: 'Estado actualizado.', data });
 });
 
-module.exports = { listar, obtener, crear, actualizar, cambiarEstado };
+module.exports = { listar, obtener, crear, actualizar, cambiarEstado, siguienteCodigo };

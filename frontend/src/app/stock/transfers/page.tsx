@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -18,6 +18,7 @@ interface StockRow {
   articles: {
     article_code: string;
     article_name: string;
+    article_state?: boolean;
     article_unit_of_measure: string;
   };
   deposit?: Deposit;
@@ -32,9 +33,23 @@ interface Line {
   amount: number;
 }
 
+interface AppliedRow {
+  article_name: string;
+  before: number;
+  moved: number;
+  after: number;
+}
+
+type StockMap = Record<number, StockRow[]>;
+
+const amountIn = (map: StockMap, depositId: number | null, articleId: number) =>
+  depositId === null
+    ? 0
+    : (map[depositId] ?? []).find((r) => r.article_id === articleId)?.stock_amount ?? 0;
+
 export default function TransfersPage() {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [stockByDeposit, setStockByDeposit] = useState<Record<number, StockRow[]>>({});
+  const [stockByDeposit, setStockByDeposit] = useState<StockMap>({});
   const [originId, setOriginId] = useState<number | null>(null);
   const [targetId, setTargetId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
@@ -44,54 +59,52 @@ export default function TransfersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [applied, setApplied] = useState<{ depositName: string; rows: AppliedRow[] } | null>(null);
 
-  // Carga inicial: recorre los depósitos conocidos y arma la lista a partir del stock.
-  // Los depósitos salen de GET /api/depositos. Antes se tanteaban a ciegas
-  // los ids del 1 al 6 porque ese endpoint no existía.
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (): Promise<StockMap> => {
     setLoading(true);
-    const found: Deposit[] = [];
-    const byDeposit: Record<number, StockRow[]> = {};
+    const byDeposit: StockMap = {};
+    let list: Deposit[] = [];
 
-    let ids: number[] = [];
     try {
       const resDep = await fetch(`${API}/api/depositos?activos=true`);
       const jsonDep = await resDep.json();
-      ids = (jsonDep?.data ?? []).map((d: Deposit) => d.deposit_id);
+      list = jsonDep?.data ?? [];
     } catch {
-      /* backend caído: la pantalla queda vacía y avisa */
+      /* backend caído */
     }
 
     await Promise.all(
-      ids.map(async (id) => {
+      list.map(async (d) => {
         try {
-          const res = await fetch(`${API}/api/stock/deposito/${id}`);
+          const res = await fetch(`${API}/api/stock/deposito/${d.deposit_id}`);
           if (!res.ok) return;
           const json = await res.json();
           if (!json.ok || !Array.isArray(json.data)) return;
-
-          const rows: StockRow[] = json.data.map((r: StockRow) => ({
+          byDeposit[d.deposit_id] = json.data.map((r: StockRow) => ({
             ...r,
             stock_amount: Number(r.stock_amount),
+            articles: {
+              ...r.articles,
+              article_state: r.articles?.article_state ?? true,
+            },
           }));
-          byDeposit[id] = rows;
-
-          const dep = rows[0]?.deposit;
-          if (dep) found.push(dep);
         } catch {
-          /* depósito inexistente o backend caído */
+          /* depósito sin stock */
         }
       })
     );
 
-    found.sort((a, b) => a.deposit_id - b.deposit_id);
-    setDeposits(found);
+    list.sort((a, b) => a.deposit_id - b.deposit_id);
+    setDeposits(list);
     setStockByDeposit(byDeposit);
-    if (found.length > 0) {
-      setOriginId((prev) => prev ?? found[0].deposit_id);
-      setTargetId((prev) => prev ?? found[1]?.deposit_id ?? found[0].deposit_id);
+
+    if (list.length > 0) {
+      setOriginId((prev) => prev ?? list[0].deposit_id);
+      setTargetId((prev) => prev ?? list[1]?.deposit_id ?? list[0].deposit_id);
     }
     setLoading(false);
+    return byDeposit;
   }, []);
 
   useEffect(() => {
@@ -104,32 +117,68 @@ export default function TransfersPage() {
   const depositTotal = (id: number | null) =>
     id === null ? 0 : (stockByDeposit[id] ?? []).reduce((s, r) => s + r.stock_amount, 0);
 
-  const originStock = originId === null ? [] : (stockByDeposit[originId] ?? []).filter((r) => r.stock_amount > 0);
+  // Solo artículos con stock disponible que NO estén dados de baja
+  const originStock = useMemo(() => {
+    if (originId === null) return [];
+    return (stockByDeposit[originId] ?? []).filter(
+      (r) => Number(r.stock_amount) > 0 && r.articles?.article_state !== false
+    );
+  }, [originId, stockByDeposit]);
 
-  // Al cambiar de depósito, las líneas dejan de ser válidas.
   useEffect(() => {
     setLines([]);
     setResult(null);
+    setApplied(null);
     setPickArticle(originStock[0] ? String(originStock[0].article_id) : '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [originId, targetId]);
+  }, [originId, targetId, originStock]);
+
+  const selectedArticleRow = useMemo(() => {
+    return originStock.find((r) => r.article_id === Number(pickArticle));
+  }, [originStock, pickArticle]);
+
+  const alreadyInLinesAmount = useMemo(() => {
+    const line = lines.find((l) => l.article_id === Number(pickArticle));
+    return line ? line.amount : 0;
+  }, [lines, pickArticle]);
+
+  const availableToAdd = useMemo(() => {
+    if (!selectedArticleRow) return 0;
+    return Math.max(0, selectedArticleRow.stock_amount - alreadyInLinesAmount);
+  }, [selectedArticleRow, alreadyInLinesAmount]);
+
+  const isPickAmountValid =
+    Boolean(selectedArticleRow) &&
+    Number.isInteger(pickAmount) &&
+    pickAmount > 0 &&
+    pickAmount <= availableToAdd;
 
   const addLine = () => {
-    const row = originStock.find((r) => r.article_id === Number(pickArticle));
-    if (!row) return;
-    if (lines.some((l) => l.article_id === row.article_id)) return;
-    setLines([
-      ...lines,
-      {
-        article_id: row.article_id,
-        article_code: row.articles.article_code,
-        article_name: row.articles.article_name,
-        unit: row.articles.article_unit_of_measure,
-        available: row.stock_amount,
-        amount: pickAmount,
-      },
-    ]);
+    if (!selectedArticleRow || !isPickAmountValid) return;
+
+    const existingIndex = lines.findIndex((l) => l.article_id === selectedArticleRow.article_id);
+
+    if (existingIndex >= 0) {
+      setLines(
+        lines.map((l, i) =>
+          i === existingIndex ? { ...l, amount: l.amount + pickAmount } : l
+        )
+      );
+    } else {
+      setLines([
+        ...lines,
+        {
+          article_id: selectedArticleRow.article_id,
+          article_code: selectedArticleRow.articles.article_code,
+          article_name: selectedArticleRow.articles.article_name,
+          unit: selectedArticleRow.articles.article_unit_of_measure,
+          available: selectedArticleRow.stock_amount,
+          amount: pickAmount,
+        },
+      ]);
+    }
+
     setPickAmount(1);
+    setApplied(null);
   };
 
   const removeLine = (id: number) => setLines(lines.filter((l) => l.article_id !== id));
@@ -137,14 +186,13 @@ export default function TransfersPage() {
   const setLineAmount = (id: number, amount: number) =>
     setLines(lines.map((l) => (l.article_id === id ? { ...l, amount } : l)));
 
-  // Validaciones espejo de las del backend
   const problems: string[] = [];
   if (originId !== null && originId === targetId) {
     problems.push('El depósito de origen y el de destino deben ser distintos.');
   }
   for (const l of lines) {
-    if (l.amount <= 0) {
-      problems.push(`${l.article_name}: la cantidad debe ser mayor a cero.`);
+    if (!Number.isInteger(l.amount) || l.amount <= 0) {
+      problems.push(`${l.article_name}: la cantidad debe ser un número entero mayor a cero.`);
     } else if (l.amount > l.available) {
       problems.push(
         `${l.article_name}: se intentan transferir ${l.amount} y el origen tiene ${l.available} disponibles.`
@@ -159,9 +207,14 @@ export default function TransfersPage() {
     if (!canConfirm) return;
     setSaving(true);
     setResult(null);
+    setApplied(null);
+
+    const beforeMap = stockByDeposit;
+    const sent = [...lines];
+    const destName = depositName(targetId);
 
     const failed: string[] = [];
-    for (const l of lines) {
+    for (const l of sent) {
       try {
         const res = await fetch(`${API}/api/stock/movimientos`, {
           method: 'POST',
@@ -182,17 +235,28 @@ export default function TransfersPage() {
       }
     }
 
+    const freshMap = await loadAll();
+
+    setApplied({
+      depositName: destName,
+      rows: sent.map((l) => ({
+        article_name: l.article_name,
+        before: amountIn(beforeMap, targetId, l.article_id),
+        moved: l.amount,
+        after: amountIn(freshMap, targetId, l.article_id),
+      })),
+    });
+
     if (failed.length === 0) {
       setResult({
         ok: true,
-        text: `Transferencia registrada: ${lines.length} línea(s), ${totalUnits} unidades.`,
+        text: `Transferencia registrada: ${sent.length} línea(s), ${totalUnits} unidades.`,
       });
       setLines([]);
     } else {
       setResult({ ok: false, text: failed.join(' · ') });
     }
 
-    await loadAll();
     setSaving(false);
   };
 
@@ -200,10 +264,9 @@ export default function TransfersPage() {
 
   return (
     <div className="-m-8 bg-white min-h-[calc(100vh-73px)] flex flex-col">
-      {/* Cabecera */}
       <header className="px-8 py-5 border-b border-slate-200 flex items-start justify-between gap-4">
         <div>
-          <span className={`${label} block mb-0.5`}>STK-06 · Encargado de stock</span>
+          <span className={`${label} block mb-0.5`}></span>
           <h2 className="text-3xl font-serif text-[#26333B]">Transferencia entre depósitos</h2>
         </div>
         <div className="flex gap-3 shrink-0">
@@ -211,22 +274,22 @@ export default function TransfersPage() {
             onClick={() => {
               setLines([]);
               setResult(null);
+              setApplied(null);
             }}
-            className="px-4 py-2 border border-slate-300 rounded text-slate-700 bg-white hover:bg-slate-50 text-xs font-medium tracking-wider"
+            className="px-4 py-2 border border-slate-300 rounded text-slate-700 bg-white hover:bg-slate-50 text-xs font-medium tracking-wider cursor-pointer"
           >
             CANCELAR
           </button>
           <button
             onClick={confirm}
             disabled={!canConfirm}
-            className="px-4 py-2 bg-[#26333B] text-white rounded hover:bg-slate-800 text-xs font-medium tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-[#26333B] text-white rounded hover:bg-slate-800 text-xs font-medium tracking-wider disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             {saving ? 'REGISTRANDO…' : 'CONFIRMAR TRANSFERENCIA'}
           </button>
         </div>
       </header>
 
-      {/* Origen y destino */}
       <section className="px-8 py-5 border-b border-slate-200 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         <div className="border border-[#CBA45C] rounded p-4">
           <span className={`${label} block mb-1`}>Origen</span>
@@ -271,9 +334,7 @@ export default function TransfersPage() {
         </div>
       </section>
 
-      {/* Cuerpo */}
       <div className="flex-1 grid grid-cols-[1fr_380px]">
-        {/* Líneas */}
         <div className="border-r border-slate-200 flex flex-col">
           <div className="px-8 py-3 bg-slate-50 border-b border-slate-200 flex items-baseline justify-between">
             <h3 className="font-serif text-lg text-[#26333B]">Artículos a transferir</h3>
@@ -308,11 +369,16 @@ export default function TransfersPage() {
                     <td className="py-3 px-3 text-right">
                       <input
                         type="number"
-                        min={0.01}
-                        step={0.01}
+                        min={1}
+                        max={l.available}
+                        step={1}
                         value={l.amount}
                         onChange={(e) => setLineAmount(l.article_id, Number(e.target.value))}
-                        className="w-20 border border-slate-300 rounded px-2 py-1 text-right font-mono focus:outline-none focus:border-[#CBA45C]"
+                        className={`w-20 border rounded px-2 py-1 text-right font-mono focus:outline-none ${
+                          remaining < 0
+                            ? 'border-red-500 focus:border-red-600 bg-red-50 text-red-700'
+                            : 'border-slate-300 focus:border-[#CBA45C]'
+                        }`}
                       />
                     </td>
                     <td
@@ -326,7 +392,7 @@ export default function TransfersPage() {
                       <button
                         onClick={() => removeLine(l.article_id)}
                         aria-label={`Quitar ${l.article_name}`}
-                        className="text-slate-400 hover:text-red-600 text-base leading-none"
+                        className="text-slate-400 hover:text-red-600 text-base leading-none cursor-pointer"
                       >
                         ×
                       </button>
@@ -348,35 +414,51 @@ export default function TransfersPage() {
           <div className="px-8 py-4 flex gap-3 border-t border-slate-100">
             <select
               value={pickArticle}
-              onChange={(e) => setPickArticle(e.target.value)}
+              onChange={(e) => {
+                setPickArticle(e.target.value);
+                setPickAmount(1);
+              }}
               disabled={originStock.length === 0}
-              className="flex-1 border border-slate-300 rounded px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#CBA45C] disabled:bg-slate-100"
+              className="flex-1 border border-slate-300 rounded px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#CBA45C] disabled:bg-slate-100 cursor-pointer"
             >
               {originStock.length === 0 ? (
-                <option value="">El origen no tiene artículos con stock</option>
+                <option value="">No hay artículos disponibles para transferir</option>
               ) : (
-                originStock.map((r) => (
-                  <option key={r.article_id} value={r.article_id}>
-                    {r.articles.article_code} · {r.articles.article_name} ({r.stock_amount})
-                  </option>
-                ))
+                originStock.map((r) => {
+                  const enTabla = lines.find((l) => l.article_id === r.article_id)?.amount ?? 0;
+                  const disponible = Math.max(0, r.stock_amount - enTabla);
+                  return (
+                    <option key={r.article_id} value={r.article_id}>
+                      {r.articles.article_code} · {r.articles.article_name} (Stock: {r.stock_amount}
+                      {enTabla > 0 ? ` | Disponible: ${disponible}` : ''})
+                    </option>
+                  );
+                })
               )}
             </select>
+
             <input
               type="number"
-              min={0.01}
-              step={0.01}
+              min={1}
+              max={availableToAdd}
+              step={1}
               value={pickAmount}
               onChange={(e) => setPickAmount(Number(e.target.value))}
+              disabled={originStock.length === 0 || availableToAdd === 0}
               aria-label="Cantidad"
-              className="w-24 border border-slate-300 rounded px-3 py-2 text-xs text-right font-mono focus:outline-none focus:border-[#CBA45C]"
+              className={`w-24 border rounded px-3 py-2 text-xs text-right font-mono focus:outline-none disabled:bg-slate-100 ${
+                !isPickAmountValid && availableToAdd > 0
+                  ? 'border-red-400 text-red-600 bg-red-50 focus:border-red-500'
+                  : 'border-slate-300 focus:border-[#CBA45C]'
+              }`}
             />
+
             <button
               onClick={addLine}
-              disabled={originStock.length === 0}
-              className="px-4 py-2 border border-[#CBA45C] text-[#8C7136] rounded text-xs font-medium hover:bg-[#FAF6F0] disabled:opacity-40"
+              disabled={!isPickAmountValid}
+              className="px-4 py-2 border border-[#CBA45C] text-[#8C7136] rounded text-xs font-medium hover:bg-[#FAF6F0] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
             >
-              Agregar línea
+              {availableToAdd === 0 && selectedArticleRow ? 'Sin stock disponible' : 'Agregar Articulo(s)'}
             </button>
           </div>
 
@@ -399,26 +481,39 @@ export default function TransfersPage() {
           </p>
         </div>
 
-        {/* Resultado */}
         <aside className="p-6 flex flex-col">
           <h3 className="font-serif text-xl text-[#26333B] mb-5">Resultado de la operación</h3>
 
-          <div className="flex justify-between items-baseline py-3 border-b border-slate-100">
-            <span className="text-xs text-slate-500">{depositName(originId)} quedará en</span>
-            <span className="text-2xl font-serif text-[#26333B]">
-              {lines.length > 0 ? depositTotal(originId) - totalUnits : '—'}
-            </span>
-          </div>
-          <div className="flex justify-between items-baseline py-3 border-b border-slate-100">
-            <span className="text-xs text-slate-500">{depositName(targetId)} quedará en</span>
-            <span className="text-2xl font-serif text-[#26333B]">
-              {lines.length > 0 ? depositTotal(targetId) + totalUnits : '—'}
-            </span>
-          </div>
-          <div className="flex justify-between items-baseline py-3 border-b border-slate-100">
-            <span className="text-xs text-slate-500">Total consolidado</span>
-            <span className="text-lg font-serif text-slate-500">sin cambios</span>
-          </div>
+          {lines.length > 0 && (
+            <div className="mt-6">
+              <span className={`${label} block mb-2`}>En {depositName(targetId)} quedará</span>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                    <th className="text-left font-bold py-1.5">Artículo</th>
+                    <th className="text-right font-bold py-1.5">Ahora</th>
+                    <th className="text-right font-bold py-1.5">Suma</th>
+                    <th className="text-right font-bold py-1.5">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {lines.map((l) => {
+                    const before = amountIn(stockByDeposit, targetId, l.article_id);
+                    return (
+                      <tr key={l.article_id}>
+                        <td className="py-2 pr-2 text-slate-700">{l.article_name}</td>
+                        <td className="py-2 text-right font-mono text-slate-400">{before}</td>
+                        <td className="py-2 text-right font-mono text-[#8C7136]">+{l.amount}</td>
+                        <td className="py-2 text-right font-mono font-bold text-slate-900">
+                          {before + l.amount}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {problems.length > 0 && (
             <div className="mt-5 border border-red-200 bg-red-50 rounded p-4">
@@ -446,21 +541,40 @@ export default function TransfersPage() {
               >
                 {result.ok ? 'Registrada' : 'Rechazada por el servidor'}
               </span>
-              <p className={`text-xs ${result.ok ? 'text-green-800' : 'text-red-800'}`}>{result.text}</p>
+              <p className={`text-xs ${result.ok ? 'text-green-800' : 'text-red-800'}`}>
+                {result.text}
+              </p>
             </div>
           )}
 
-          <span className={`${label} block mt-8 mb-2`}>Validaciones</span>
-          <ul className="text-xs text-slate-500 space-y-1 list-disc pl-4">
-            <li>El origen y el destino deben ser distintos.</li>
-            <li>Cada cantidad debe ser mayor a cero.</li>
-            <li>El origen debe tener stock suficiente de cada artículo.</li>
-            <li>Ambos depósitos deben estar activos.</li>
-          </ul>
-
-          <p className="mt-auto pt-6 text-xs text-slate-400">
-            Origen y destino deben ser distintos y estar activos.
-          </p>
+          {applied && (
+            <div className="mt-5">
+              <span className={`${label} block mb-2`}>Quedó en {applied.depositName}</span>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                    <th className="text-left font-bold py-1.5">Artículo</th>
+                    <th className="text-right font-bold py-1.5">Antes</th>
+                    <th className="text-right font-bold py-1.5">Movido</th>
+                    <th className="text-right font-bold py-1.5">Ahora</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {applied.rows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="py-2 pr-2 text-slate-700">{r.article_name}</td>
+                      <td className="py-2 text-right font-mono text-slate-400">{r.before}</td>
+                      <td className="py-2 text-right font-mono text-[#8C7136]">+{r.moved}</td>
+                      <td className="py-2 text-right font-mono font-bold text-slate-900">{r.after}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-slate-400 mt-2">
+                Valores leídos de la base después de registrar el movimiento.
+              </p>
+            </div>
+          )}
         </aside>
       </div>
     </div>

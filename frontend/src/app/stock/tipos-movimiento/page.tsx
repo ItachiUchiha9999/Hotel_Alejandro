@@ -133,9 +133,9 @@ export default function TiposMovimientoPage() {
   return (
     <>
       <PageHeader
-        eyebrow="STK-04"
+        eyebrow=""
         titulo="Tipos de movimiento"
-        descripcion="Definen qué hace cada operación con el stock. Un tipo inactivo deja de ofrecerse al registrar movimientos, pero su historial se conserva."
+        descripcion=""
         acciones={<Button onClick={abrirAlta}>Nuevo tipo</Button>}
       />
 
