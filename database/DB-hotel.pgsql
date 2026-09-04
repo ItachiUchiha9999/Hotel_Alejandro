@@ -40,11 +40,17 @@ SET client_encoding = 'UTF8';
  * ==========================================================================
  */
 -- Vistas
+DROP VIEW IF EXISTS v_purchase_order_summary CASCADE;
+DROP VIEW IF EXISTS v_supplier_detail CASCADE;
 DROP VIEW IF EXISTS v_supplier_voucher_balance CASCADE;
 DROP VIEW IF EXISTS v_supplier_account_balance CASCADE;
 DROP VIEW IF EXISTS v_expense_summary CASCADE;
 
 -- Tablas
+DROP TABLE IF EXISTS Purchase_Order_Status_History CASCADE;
+DROP TABLE IF EXISTS Purchase_Order_Detail CASCADE;
+DROP TABLE IF EXISTS Purchase_Order CASCADE;
+DROP TABLE IF EXISTS Tax_Condition CASCADE;
 DROP TABLE IF EXISTS Expense_Payment_Order CASCADE;
 DROP TABLE IF EXISTS Expense_Voucher CASCADE;
 DROP TABLE IF EXISTS Expense CASCADE;
@@ -68,6 +74,10 @@ DROP TABLE IF EXISTS Employees CASCADE;
 DROP TABLE IF EXISTS Roles CASCADE;
 
 -- Funciones de los triggers
+DROP FUNCTION IF EXISTS fn_sync_purchase_order_total() CASCADE;
+DROP FUNCTION IF EXISTS fn_check_purchase_detail_editable() CASCADE;
+DROP FUNCTION IF EXISTS fn_validate_purchase_order() CASCADE;
+DROP FUNCTION IF EXISTS fn_log_purchase_order_status() CASCADE;
 DROP FUNCTION IF EXISTS fn_validate_movement_deposits() CASCADE;
 DROP FUNCTION IF EXISTS fn_check_deposit_active() CASCADE;
 DROP FUNCTION IF EXISTS fn_sync_voucher_status() CASCADE;
@@ -113,7 +123,18 @@ CREATE TABLE Employees (
 CREATE INDEX idx_employees_rol ON Employees(rol_id);
 
 -- =====================================================================
--- 2. Proveedores
+-- 2. Proveedores y condición fiscal (PROV-01)
+-- =====================================================================
+
+CREATE TABLE Tax_Condition (
+    tax_condition_id   INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tax_condition_name VARCHAR(60)  NOT NULL UNIQUE,
+    description        VARCHAR(200),
+    active             BOOLEAN      NOT NULL DEFAULT TRUE
+);
+
+-- =====================================================================
+-- 2b. Proveedores
 -- =====================================================================
 CREATE TABLE Suppliers (
     supplier_id         INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -124,8 +145,18 @@ CREATE TABLE Suppliers (
     supplier_phone      VARCHAR(30),
     supplier_address    VARCHAR(200),
     supplier_state      BOOLEAN      NOT NULL DEFAULT TRUE,
-    creation_date       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    tax_condition_id    INT,
+    creation_date       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- PROV-01: 11 dígitos, con o sin guiones. El dígito verificador se valida
+    -- en el backend, porque el CHECK quedaría ilegible.
+    CONSTRAINT ck_supplier_cuit_format
+        CHECK (supplier_cuit ~ '^[0-9]{2}-?[0-9]{8}-?[0-9]{1}$'),
+    CONSTRAINT fk_supplier_tax_condition
+        FOREIGN KEY (tax_condition_id) REFERENCES Tax_Condition(tax_condition_id)
 );
+
+CREATE INDEX idx_supplier_tax_condition ON Suppliers(tax_condition_id);
 
 -- =====================================================================
 -- 3. Categorías y artículos (STK-02)
@@ -350,6 +381,101 @@ CREATE TABLE Voucher_Type (
  * sin recalcular sobre el detalle de pagos en cada consulta. Los CHECK y los
  * triggers de más abajo garantizan que nunca se despegue de la realidad.
  */
+-- =====================================================================
+-- Órdenes de compra (PROV-02)
+-- =====================================================================
+
+/**
+ * Estados y su flujo:
+ *   BORRADOR  -> se arma la orden, se puede editar el detalle
+ *   EMITIDA   -> se envió al proveedor; ya no se edita el detalle
+ *   APROBADA  -> el proveedor confirmó
+ *   RECIBIDA  -> llegó la mercadería
+ *   CANCELADA -> se dio de baja, se conserva el historial
+ *
+ * `total_amount` lo mantiene un trigger a partir del detalle: si lo cargara la
+ * aplicación, podría quedar distinto de la suma de los renglones.
+ */
+CREATE TABLE Purchase_Order (
+    purchase_order_id     INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    purchase_order_number VARCHAR(20)   NOT NULL UNIQUE,
+    supplier_id           INT           NOT NULL,
+    issue_date            DATE          NOT NULL,
+    expected_date         DATE,
+    purchase_conditions   VARCHAR(255),
+    purchase_order_status VARCHAR(20)   NOT NULL DEFAULT 'BORRADOR',
+    total_amount          NUMERIC(14,2) NOT NULL DEFAULT 0.00,
+    observations          VARCHAR(255),
+    employees_id          INT           NOT NULL,
+    creation_date         TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT ck_purchase_order_status
+        CHECK (purchase_order_status IN ('BORRADOR', 'EMITIDA', 'APROBADA', 'RECIBIDA', 'CANCELADA')),
+    CONSTRAINT ck_purchase_order_total CHECK (total_amount >= 0),
+    CONSTRAINT ck_purchase_order_dates CHECK (expected_date IS NULL OR expected_date >= issue_date),
+
+    CONSTRAINT fk_purchase_order_supplier FOREIGN KEY (supplier_id)  REFERENCES Suppliers(supplier_id),
+    CONSTRAINT fk_purchase_order_employee FOREIGN KEY (employees_id) REFERENCES Employees(employees_id)
+);
+
+CREATE INDEX idx_purchase_order_supplier ON Purchase_Order(supplier_id);
+CREATE INDEX idx_purchase_order_status   ON Purchase_Order(purchase_order_status);
+CREATE INDEX idx_purchase_order_date     ON Purchase_Order(issue_date);
+CREATE INDEX idx_purchase_order_employee ON Purchase_Order(employees_id);
+
+/**
+ * Renglones de la orden. El criterio pide "artículos O SERVICIOS", y los
+ * servicios (una reparación, un flete) no están en el catálogo de artículos.
+ * Por eso `article_id` es opcional y `item_description` obligatoria: si hay
+ * artículo, la descripción se completa con su nombre; si no, describe el
+ * servicio contratado.
+ *
+ * `subtotal` es columna generada: PostgreSQL la calcula y nadie puede
+ * escribirla con un valor que no sea cantidad × precio.
+ */
+CREATE TABLE Purchase_Order_Detail (
+    purchase_detail_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    purchase_order_id  INT           NOT NULL,
+    article_id         INT,
+    item_description   VARCHAR(255)  NOT NULL,
+    quantity           NUMERIC(12,2) NOT NULL,
+    unit_price         NUMERIC(14,2) NOT NULL,
+    subtotal           NUMERIC(14,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+
+    CONSTRAINT ck_purchase_detail_quantity CHECK (quantity > 0),
+    CONSTRAINT ck_purchase_detail_price    CHECK (unit_price >= 0),
+
+    CONSTRAINT fk_purchase_detail_order
+        FOREIGN KEY (purchase_order_id) REFERENCES Purchase_Order(purchase_order_id) ON DELETE CASCADE,
+    CONSTRAINT fk_purchase_detail_article
+        FOREIGN KEY (article_id) REFERENCES Articles(article_id)
+);
+
+CREATE INDEX idx_purchase_detail_order   ON Purchase_Order_Detail(purchase_order_id);
+CREATE INDEX idx_purchase_detail_article ON Purchase_Order_Detail(article_id);
+
+/**
+ * Historial de estados: el criterio pide que cada cambio registre fecha y
+ * usuario responsable. Va en tabla aparte porque una orden pasa por varios
+ * estados y hay que conservarlos todos, no solo el último.
+ */
+CREATE TABLE Purchase_Order_Status_History (
+    status_history_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    purchase_order_id INT          NOT NULL,
+    previous_status   VARCHAR(20),
+    new_status        VARCHAR(20)  NOT NULL,
+    changed_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    employees_id      INT          NOT NULL,
+    reason            VARCHAR(255),
+
+    CONSTRAINT fk_status_history_order
+        FOREIGN KEY (purchase_order_id) REFERENCES Purchase_Order(purchase_order_id) ON DELETE CASCADE,
+    CONSTRAINT fk_status_history_employee
+        FOREIGN KEY (employees_id) REFERENCES Employees(employees_id)
+);
+
+CREATE INDEX idx_status_history_order ON Purchase_Order_Status_History(purchase_order_id);
+
 CREATE TABLE Supplier_Voucher (
     voucher_id             INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     supplier_id            INT           NOT NULL,
@@ -366,6 +492,7 @@ CREATE TABLE Supplier_Voucher (
     employees_id           INT           NOT NULL,
     creation_date          TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     /** Anulación: baja lógica, el comprobante nunca se borra (PROV-03). */
+    purchase_order_id      INT,          -- PROV-02: orden que originó el comprobante
     annulled_date          TIMESTAMPTZ,
     annulled_reason        VARCHAR(255),
 
@@ -379,10 +506,12 @@ CREATE TABLE Supplier_Voucher (
 
     CONSTRAINT fk_voucher_supplier  FOREIGN KEY (supplier_id)     REFERENCES Suppliers(supplier_id),
     CONSTRAINT fk_voucher_type      FOREIGN KEY (voucher_type_id) REFERENCES Voucher_Type(voucher_type_id),
-    CONSTRAINT fk_voucher_employees FOREIGN KEY (employees_id)    REFERENCES Employees(employees_id)
+    CONSTRAINT fk_voucher_employees FOREIGN KEY (employees_id)    REFERENCES Employees(employees_id),
+    CONSTRAINT fk_voucher_purchase_order FOREIGN KEY (purchase_order_id) REFERENCES Purchase_Order(purchase_order_id)
 );
 
 CREATE INDEX idx_voucher_supplier   ON Supplier_Voucher(supplier_id);
+CREATE INDEX idx_voucher_purchase_order ON Supplier_Voucher(purchase_order_id);
 CREATE INDEX idx_voucher_type       ON Supplier_Voucher(voucher_type_id);
 CREATE INDEX idx_voucher_status     ON Supplier_Voucher(voucher_status);
 CREATE INDEX idx_voucher_issue_date ON Supplier_Voucher(issue_date);
@@ -967,7 +1096,6 @@ ON CONFLICT (movement_type) DO NOTHING;
  *   psql -U postgres -d sistema_hotelero_db -f database/06_sprint2_seed.sql
  */
 
-
 /**
  * `sign` define el efecto sobre la deuda: +1 la aumenta, -1 la disminuye.
  * `is_payable` marca qué comprobantes admiten órdenes de pago. Una nota de
@@ -975,82 +1103,6 @@ ON CONFLICT (movement_type) DO NOTHING;
  */
 -- ##########################################################################
 -- DATOS SEMILLA — Sprint 1
--- ##########################################################################
-
-INSERT INTO Roles (rol_name, rol_pass, rol_description) VALUES
-    ('ADMINISTRADOR',   '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Acceso total al sistema'),
-    ('ENCARGADO_STOCK', '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Supervisión de compras y depósitos'),
-    ('GOBERNANZA',      '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Blanco, amoblamiento y limpieza'),
-    ('RECEPCION',       '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Consumos de minibar y amenities')
-ON CONFLICT (rol_name) DO NOTHING;
-
-INSERT INTO Employees (rol_id, employees_name, employees_lastname, employees_email, employees_phone)
-SELECT r.rol_id, e.nombre, e.apellido, e.email, e.telefono
-FROM (VALUES
-    ('ADMINISTRADOR',   'Carlos',  'Gómez',    'cgomez@hotelalejandro.com',    '+543874112233'),
-    ('ENCARGADO_STOCK', 'Mariana', 'López',    'mlopez@hotelalejandro.com',    '+543874445566'),
-    ('GOBERNANZA',      'Sonia',   'Martínez', 'smartinez@hotelalejandro.com', '+543874778899')
-) AS e(rol, nombre, apellido, email, telefono)
-JOIN Roles r ON r.rol_name = e.rol
-ON CONFLICT (employees_email) DO NOTHING;
-
-INSERT INTO Suppliers (supplier_legal_name, supplier_trade_name, supplier_cuit, supplier_email, supplier_phone, supplier_address) VALUES
-    ('Distribuidora Textil del Norte S.A.', 'Textil Norte',  '30-71123456-8', 'ventas@textilnorte.com',   '0387-4311000', 'Av. Chile 1450, Salta'),
-    ('Química Salteña S.R.L.',              'Química Salta', '30-65498732-1', 'contacto@quimicasalta.com','0387-4223344', 'Av. Tavella 2800, Salta'),
-    ('Bebidas y Alimentos S.A.',            'Bebidas NOA',   '30-58963214-5', 'pedidos@bebidasnoa.com',   '0387-4950011', 'Ruta 68 Km 5, Cerrillos')
-ON CONFLICT (supplier_cuit) DO NOTHING;
-
-INSERT INTO Categories (category_name, category_description) VALUES
-    ('Blancos y Mantelería', 'Toallas, sábanas, fundas, manteles y servilletas'),
-    ('Artículos de Limpieza','Detergentes, desinfectantes, lavandina, escobas'),
-    ('Amenities y Baño',     'Jabones, champú, acondicionador, gorros de ducha'),
-    ('Frigobar y Snacks',    'Aguas, gaseosas, vinos, chocolates y frutos secos')
-ON CONFLICT (category_name) DO NOTHING;
-
-INSERT INTO Articles (category_id, article_code, article_number, article_name, article_compound_name,
-                      article_description, article_unit_of_measure, article_stock_min_general)
-SELECT c.category_id, a.codigo, a.numero, a.nombre, a.compuesto, a.descripcion, a.unidad, a.minimo
-FROM (VALUES
-    ('Blancos y Mantelería', 'BLA-001', '001', 'Sábana 2 Plazas 180 hilos',        'Sábana ajustable blanca 2 plazas',   'Sábana ajustable blanca para cama matrimonial', 'UNIDAD', 20.00),
-    ('Blancos y Mantelería', 'BLA-002', '002', 'Toallón de Baño 500g',             'Toallón blanco algodón 90x150',      'Toallón blanco de algodón puro 90x150cm',       'UNIDAD', 30.00),
-    ('Artículos de Limpieza','LIM-001', '003', 'Detergente Multiuso Concentrado',  'Detergente concentrado bidón 5L',    'Bidón de desinfectante líquido',                'BIDON',   5.00),
-    ('Amenities y Baño',     'AME-001', '004', 'Jabón Fraccional 20g',             'Jabón individual huéspedes 20g',     'Jabón en pastilla individual para huéspedes',   'CAJA',   10.00),
-    ('Frigobar y Snacks',    'FRI-001', '005', 'Agua Mineral Sin Gas 500ml',       'Agua mineral PET 500ml',             'Botella PET agua mineral',                      'UNIDAD', 50.00),
-    ('Frigobar y Snacks',    'FRI-002', '006', 'Vino Malbec Reserva 750ml',        'Malbec reserva 750ml frigobar',      'Vino para reposición de frigobar en Suite',     'UNIDAD', 12.00)
-) AS a(categoria, codigo, numero, nombre, compuesto, descripcion, unidad, minimo)
-JOIN Categories c ON c.category_name = a.categoria
-ON CONFLICT (article_code) DO NOTHING;
-
-INSERT INTO Deposit (deposit_name, deposit_location) VALUES
-    ('Depósito Central',              'Subsuelo - Sector Compras'),
-    ('Office Gobernanza Piso 1',      'Piso 1 - Pasillo Central'),
-    ('Office Gobernanza Piso 2',      'Piso 2 - Pasillo Central'),
-    ('Depósito Resto Bar / Frigobar', 'Planta Baja - Cocina Principal')
-ON CONFLICT (deposit_name) DO NOTHING;
-
-INSERT INTO Articles_Deposit_Stock (article_id, deposit_id, stock_amount)
-SELECT a.article_id, d.deposit_id, s.cantidad
-FROM (VALUES
-    ('BLA-001', 'Depósito Central',              100.00),
-    ('BLA-002', 'Depósito Central',              150.00),
-    ('BLA-002', 'Office Gobernanza Piso 1',       20.00),
-    ('LIM-001', 'Depósito Central',               15.00),
-    ('AME-001', 'Depósito Central',               25.00),
-    ('FRI-001', 'Depósito Resto Bar / Frigobar', 120.00),
-    ('FRI-002', 'Depósito Resto Bar / Frigobar',  30.00)
-) AS s(codigo, deposito, cantidad)
-JOIN Articles a ON a.article_code  = s.codigo
-JOIN Deposit  d ON d.deposit_name  = s.deposito
-ON CONFLICT (article_id, deposit_id) DO NOTHING;
-
-INSERT INTO Movement_Type (movement_type, description, effect) VALUES
-    ('INGRESO',            'Entrada de mercadería al stock',            'SUMA'),
-    ('EGRESO',             'Salida de mercadería del stock',            'RESTA'),
-    ('TRANSFERENCIA',      'Traslado de mercadería entre depósitos',    'TRANSFERENCIA'),
-    ('CONSUMO',            'Consumo interno de insumos',                'RESTA'),
-    ('AJUSTE_POSITIVO',    'Ajuste de inventario que suma stock',       'SUMA'),
-    ('AJUSTE_NEGATIVO',    'Ajuste de inventario que descuenta stock',  'RESTA')
-ON CONFLICT (movement_type) DO NOTHING;
 -- ##########################################################################
 -- DATOS SEMILLA — Sprint 2
 -- ##########################################################################
@@ -1070,5 +1122,78 @@ INSERT INTO Payment_Method (payment_method, description, requires_reference) VAL
     ('TRANSFERENCIA', 'Transferencia bancaria: requiere número de operación', TRUE),
     ('CHEQUE',        'Cheque propio o de terceros: requiere número',      TRUE)
 ON CONFLICT (payment_method) DO NOTHING;
+
+-- =====================================================================
+-- PROV-01 — Condiciones fiscales
+-- =====================================================================
+INSERT INTO Tax_Condition (tax_condition_name, description) VALUES
+    ('RESPONSABLE_INSCRIPTO', 'IVA responsable inscripto: emite factura A'),
+    ('MONOTRIBUTISTA',        'Responsable monotributo: emite factura C'),
+    ('EXENTO',                'IVA exento'),
+    ('CONSUMIDOR_FINAL',      'Consumidor final')
+ON CONFLICT (tax_condition_name) DO NOTHING;
+
+/**
+ * Formato de CUIT: 11 dígitos, con o sin guiones (30-71123456-8 o 30711234568).
+ * La validación del dígito verificador se hace en el backend, porque el CHECK
+ * quedaría ilegible y difícil de mantener.
+ */
+
+-- Los proveedores de la semilla son empresas: responsable inscripto.
+UPDATE Suppliers
+SET tax_condition_id = (SELECT tax_condition_id FROM Tax_Condition WHERE tax_condition_name = 'RESPONSABLE_INSCRIPTO')
+WHERE tax_condition_id IS NULL;
+
+UPDATE Suppliers
+SET tax_condition_id = (SELECT tax_condition_id FROM Tax_Condition WHERE tax_condition_name = 'RESPONSABLE_INSCRIPTO')
+WHERE tax_condition_id IS NULL;
+
+-- =====================================================================
+-- Vistas de PROV-01 y PROV-02
+-- =====================================================================
+CREATE OR REPLACE VIEW v_purchase_order_summary AS
+SELECT
+    po.purchase_order_id,
+    po.purchase_order_number,
+    po.supplier_id,
+    s.supplier_legal_name,
+    s.supplier_trade_name,
+    po.issue_date,
+    po.expected_date,
+    po.purchase_order_status,
+    po.purchase_conditions,
+    po.total_amount,
+    COUNT(pod.purchase_detail_id)            AS item_count,
+    COUNT(DISTINCT sv.voucher_id)            AS voucher_count,
+    CASE
+        WHEN po.purchase_order_status IN ('EMITIDA', 'APROBADA')
+             AND po.expected_date < CURRENT_DATE THEN TRUE
+        ELSE FALSE
+    END AS is_overdue
+FROM Purchase_Order po
+JOIN Suppliers s ON s.supplier_id = po.supplier_id
+LEFT JOIN Purchase_Order_Detail pod ON pod.purchase_order_id = po.purchase_order_id
+LEFT JOIN Supplier_Voucher sv       ON sv.purchase_order_id = po.purchase_order_id
+GROUP BY po.purchase_order_id, po.purchase_order_number, po.supplier_id,
+         s.supplier_legal_name, s.supplier_trade_name, po.issue_date,
+         po.expected_date, po.purchase_order_status, po.purchase_conditions,
+         po.total_amount;
+
+/** Proveedores con su condición fiscal resuelta, para los selectores. */
+CREATE OR REPLACE VIEW v_supplier_detail AS
+SELECT
+    s.supplier_id,
+    s.supplier_legal_name,
+    s.supplier_trade_name,
+    s.supplier_cuit,
+    s.supplier_email,
+    s.supplier_phone,
+    s.supplier_address,
+    s.supplier_state,
+    s.creation_date,
+    s.tax_condition_id,
+    tc.tax_condition_name
+FROM Suppliers s
+LEFT JOIN Tax_Condition tc ON tc.tax_condition_id = s.tax_condition_id;
 
 COMMIT;

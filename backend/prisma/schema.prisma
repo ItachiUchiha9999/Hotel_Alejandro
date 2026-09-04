@@ -21,6 +21,7 @@ model articles {
   creation_date             DateTime                 @default(now()) @db.Timestamptz(6)
   categories                categories               @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_article_categories")
   articles_deposit_stock    articles_deposit_stock[]
+  purchase_order_detail     purchase_order_detail[]
 
   @@index([category_id], map: "idx_articles_category")
 }
@@ -70,10 +71,12 @@ model employees {
   roles              roles            @relation(fields: [rol_id], references: [rol_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employees_rol")
   stock_movement     stock_movement[]
   supplier_voucher          supplier_voucher[]
+  purchase_order            purchase_order[]
   payment_order             payment_order[]
   payment_order_reset       payment_order_reset[]
   supplier_account_movement supplier_account_movement[]
   expense                   expense[]
+  purchase_order_status_history purchase_order_status_history[]
 
   @@index([rol_id], map: "idx_employees_rol")
 }
@@ -144,12 +147,15 @@ model suppliers {
   supplier_phone      String?          @db.VarChar(30)
   supplier_address    String?          @db.VarChar(200)
   supplier_state      Boolean          @default(true)
+  tax_condition_id    Int?
   creation_date       DateTime         @default(now()) @db.Timestamptz(6)
+  tax_condition       tax_condition?   @relation(fields: [tax_condition_id], references: [tax_condition_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_supplier_tax_condition")
   stock_movement      stock_movement[]
   supplier_voucher          supplier_voucher[]
   payment_order             payment_order[]
   supplier_account_movement supplier_account_movement[]
   expense                   expense[]
+  purchase_order            purchase_order[]
 }
 
 // ===========================================================================
@@ -191,11 +197,13 @@ model supplier_voucher {
   voucher_status        String                      @default("PENDIENTE") @db.VarChar(20)
   observations          String?                     @db.VarChar(255)
   employees_id          Int
+  purchase_order_id     Int?
   creation_date         DateTime                    @default(now()) @db.Timestamptz(6)
   annulled_date         DateTime?                   @db.Timestamptz(6)
   annulled_reason       String?                     @db.VarChar(255)
 
   suppliers             suppliers                   @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_supplier")
+  purchase_order        purchase_order?             @relation(fields: [purchase_order_id], references: [purchase_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_purchase_order")
   voucher_type          voucher_type                @relation(fields: [voucher_type_id], references: [voucher_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_type")
   employees             employees                   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_employees")
   payment_order_detail  payment_order_detail[]
@@ -377,4 +385,82 @@ model expense_payment_order {
 
   @@unique([expense_id, payment_order_id], map: "uq_expense_payment_order")
   @@index([payment_order_id], map: "idx_expense_payment_order")
+}
+
+// ---------------------------------------------------------------------------
+// PROV-01 / PROV-02 — Condición fiscal y órdenes de compra
+// Espejo de database/08_prov01_prov02.sql
+// ---------------------------------------------------------------------------
+
+/// Catálogo de condiciones fiscales (PROV-01). Define qué comprobantes puede
+/// emitir el proveedor: un monotributista no emite factura A.
+model tax_condition {
+  tax_condition_id   Int         @id @default(autoincrement())
+  tax_condition_name String      @unique @db.VarChar(60)
+  description        String?     @db.VarChar(200)
+  active             Boolean     @default(true)
+  suppliers          suppliers[]
+}
+
+/// Órdenes de compra (PROV-02).
+/// Estados: BORRADOR, EMITIDA, APROBADA, RECIBIDA, CANCELADA.
+/// total_amount lo mantiene el trigger tr_sync_purchase_order_total.
+model purchase_order {
+  purchase_order_id     Int                             @id @default(autoincrement())
+  purchase_order_number String                          @unique @db.VarChar(20)
+  supplier_id           Int
+  issue_date            DateTime                        @db.Date
+  expected_date         DateTime?                       @db.Date
+  purchase_conditions   String?                         @db.VarChar(255)
+  purchase_order_status String                          @default("BORRADOR") @db.VarChar(20)
+  total_amount          Decimal                         @default(0.00) @db.Decimal(14, 2)
+  observations          String?                         @db.VarChar(255)
+  employees_id          Int
+  creation_date         DateTime                        @default(now()) @db.Timestamptz(6)
+
+  suppliers             suppliers                       @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_purchase_order_supplier")
+  employees             employees                       @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_purchase_order_employee")
+  purchase_order_detail purchase_order_detail[]
+  status_history        purchase_order_status_history[]
+  supplier_voucher      supplier_voucher[]
+
+  @@index([supplier_id], map: "idx_purchase_order_supplier")
+  @@index([purchase_order_status], map: "idx_purchase_order_status")
+  @@index([issue_date], map: "idx_purchase_order_date")
+  @@index([employees_id], map: "idx_purchase_order_employee")
+}
+
+/// Renglones de la orden. article_id es opcional porque el criterio pide
+/// "artículos o servicios", y los servicios no están en el catálogo.
+/// subtotal es columna generada en la base: no se puede escribir desde Prisma.
+model purchase_order_detail {
+  purchase_detail_id Int            @id @default(autoincrement())
+  purchase_order_id  Int
+  article_id         Int?
+  item_description   String         @db.VarChar(255)
+  quantity           Decimal        @db.Decimal(12, 2)
+  unit_price         Decimal        @db.Decimal(14, 2)
+
+  purchase_order     purchase_order @relation(fields: [purchase_order_id], references: [purchase_order_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_purchase_detail_order")
+  articles           articles?      @relation(fields: [article_id], references: [article_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_purchase_detail_article")
+
+  @@index([purchase_order_id], map: "idx_purchase_detail_order")
+  @@index([article_id], map: "idx_purchase_detail_article")
+}
+
+/// Historial de cambios de estado: el criterio pide fecha y usuario en cada
+/// transición. Lo escribe el trigger tr_log_purchase_order_status.
+model purchase_order_status_history {
+  status_history_id Int            @id @default(autoincrement())
+  purchase_order_id Int
+  previous_status   String?        @db.VarChar(20)
+  new_status        String         @db.VarChar(20)
+  changed_at        DateTime       @default(now()) @db.Timestamptz(6)
+  employees_id      Int
+  reason            String?        @db.VarChar(255)
+
+  purchase_order    purchase_order @relation(fields: [purchase_order_id], references: [purchase_order_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_status_history_order")
+  employees         employees      @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_status_history_employee")
+
+  @@index([purchase_order_id], map: "idx_status_history_order")
 }

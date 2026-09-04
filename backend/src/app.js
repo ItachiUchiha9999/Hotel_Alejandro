@@ -11,6 +11,10 @@ const categoriasRoutes = require('./modules/categorias/categorias.routes');
 const stockRoutes = require('./modules/stock/stock.routes');
 const tiposMovimientoRoutes = require('./modules/tipos-movimiento/tiposMovimiento.routes');
 const catalogoRoutes = require('./modules/catalogo/catalogo.routes');
+const comprobantesRoutes = require('./modules/comprobantes/comprobantes.routes');
+const proveedoresRoutes = require('./modules/proveedores/proveedores.routes');
+const tiposComprobanteRoutes = require('./modules/tipos-comprobante/tiposComprobante.routes');
+
 
 const app = express();
 
@@ -33,6 +37,11 @@ app.use('/api/categorias', categoriasRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/tipos-movimiento', tiposMovimientoRoutes);
 app.use('/api/catalogo', catalogoRoutes);
+
+// Sprint 2 — comprobantes de proveedores y órdenes de pago
+app.use('/api/proveedores', proveedoresRoutes);
+app.use('/api/tipos-comprobante', tiposComprobanteRoutes);
+app.use('/api/comprobantes', comprobantesRoutes);
 
 // ---------------------------------------------------------------------------
 // Alias en inglés. Los usaban las pantallas de la rama STK-04/STK-05, que

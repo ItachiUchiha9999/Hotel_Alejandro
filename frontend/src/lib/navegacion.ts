@@ -10,6 +10,10 @@
  * además de seguir estando disponibles dentro de "Stock" (mismas rutas,
  * dos puntos de entrada). Pendiente: ocultar este ítem para roles
  * distintos de ADMINISTRADOR una vez esté el login real conectado a roles.
+ *
+ * Los ítems con hijos se renderizan como desplegable, no como enlace, así que
+ * su `ruta` funciona solo como agrupador: /proveedores y /reportes no
+ * necesitan tener una página propia.
  */
 
 export interface ItemNavegacion {
@@ -22,7 +26,7 @@ export const MODULOS: ItemNavegacion[] = [
   { nombre: "Inicio", ruta: "/" },
   { nombre: "Artículos", ruta: "/articulos" },
   { nombre: "Categorías", ruta: "/categorias" },
- 
+
   {
     nombre: "Stock",
     ruta: "/stock",
@@ -31,10 +35,19 @@ export const MODULOS: ItemNavegacion[] = [
       { nombre: "Depósitos", ruta: "/stock/depositos" },
       { nombre: "Tipos de movimiento", ruta: "/stock/tipos-movimiento" },
       { nombre: "Transferencias", ruta: "/stock/transfers" },
-      
     ],
   },
-   {
+
+  {
+    nombre: "Proveedores",
+    ruta: "/proveedores",
+    hijos: [
+      { nombre: "Comprobantes", ruta: "/proveedores/comprobantes" },
+      //{ nombre: "Registrar comprobante", ruta: "/proveedores/comprobantes/nuevo" },
+    ],
+  },
+
+  {
     nombre: "Reportes",
     ruta: "/reportes",
     hijos: [
