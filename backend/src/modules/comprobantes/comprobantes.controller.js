@@ -1,11 +1,16 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const service = require('./comprobantes.service');
-
 const listar = asyncHandler(async (req, res) => {
-  const data = await service.listar({ supplierId: req.query.proveedor });
-  res.json({ ok: true, data });
-});
+  const data = await service.listar({
+    supplierId: req.query.supplier_id,
+    payable: req.query.payable === 'true',
+  });
 
+  res.json({
+    ok: true,
+    data,
+  });
+});
 const obtener = asyncHandler(async (req, res) => {
   const data = await service.obtener(req.params.id);
   res.json({ ok: true, data });

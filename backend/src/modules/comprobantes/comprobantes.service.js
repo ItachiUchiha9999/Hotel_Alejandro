@@ -29,19 +29,38 @@ const toDate = (valor) => {
  * calcula el saldo pendiente y marca los vencidos. Prisma no mapea vistas, así
  * que se consulta con SQL crudo.
  */
-const listar = async ({ supplierId } = {}) => {
+const listar = async ({ supplierId, payable } = {}) => {
   const id = toId(supplierId);
+
+  if (id && payable) {
+    return prisma.$queryRaw`
+      SELECT
+        vsvb.*
+      FROM v_supplier_voucher_balance vsvb
+      JOIN supplier_voucher sv
+        ON sv.voucher_id = vsvb.voucher_id
+      JOIN voucher_type vt
+        ON vt.voucher_type_id = sv.voucher_type_id
+      WHERE vsvb.supplier_id = ${id}
+        AND vt.is_payable = TRUE
+      ORDER BY vsvb.issue_date DESC, vsvb.voucher_id DESC
+    `;
+  }
 
   if (id) {
     return prisma.$queryRaw`
-      SELECT * FROM v_supplier_voucher_balance
+      SELECT *
+      FROM v_supplier_voucher_balance
       WHERE supplier_id = ${id}
-      ORDER BY issue_date DESC, voucher_id DESC`;
+      ORDER BY issue_date DESC, voucher_id DESC
+    `;
   }
 
   return prisma.$queryRaw`
-    SELECT * FROM v_supplier_voucher_balance
-    ORDER BY issue_date DESC, voucher_id DESC`;
+    SELECT *
+    FROM v_supplier_voucher_balance
+    ORDER BY issue_date DESC, voucher_id DESC
+  `;
 };
 
 const obtener = async (id) => {

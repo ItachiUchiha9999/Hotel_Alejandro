@@ -1,6 +1,5 @@
 const { Router } = require('express');
-const prisma = require('../../db/prisma');
-const asyncHandler = require('../../utils/asyncHandler');
+const controller = require('./tiposComprobante.controller');
 
 /**
  * Catálogo de tipos de comprobante (PROV-02).
@@ -8,15 +7,10 @@ const asyncHandler = require('../../utils/asyncHandler');
  */
 const router = Router();
 
-router.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    const data = await prisma.voucher_type.findMany({
-      where: req.query.activos === 'true' ? { active: true } : undefined,
-      orderBy: { voucher_type_id: 'asc' },
-    });
-    res.json({ ok: true, data });
-  })
-);
+router.get('/', controller.listar);
+router.get('/:id', controller.obtener);
+router.post('/', controller.crear);
+router.put('/:id', controller.actualizar);
+router.patch('/:id/estado', controller.cambiarEstado);
 
 module.exports = router;
