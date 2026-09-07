@@ -82,3 +82,36 @@ export interface Movimiento {
   deposit_destination: { deposit_id: number; deposit_name: string } | null;
   movement_stock_detail: DetalleMovimiento[];
 }
+
+export interface TipoComprobante {
+  voucher_type_id: number;
+  voucher_type: string;
+  description: string;
+  sign: number;
+  affects_account: boolean;
+  is_payable: boolean;
+  active: boolean;
+}
+
+export interface Proveedor {
+  supplier_id: number;
+  supplier_legal_name: string;
+  supplier_trade_name: string | null;
+  supplier_cuit: string;
+  supplier_state: boolean;
+}
+
+export interface Comprobante {
+  voucher_id: number;
+  supplier_id: number;
+  supplier_legal_name: string;
+  supplier_trade_name: string | null;
+  voucher_type: string;
+  voucher_full_number: string;
+  issue_date: string;
+  due_date: string | null;
+  total_amount: string | number;
+  pending_amount: string | number;
+  voucher_status: "PENDIENTE" | "PAGADO" | "ANULADO";
+  is_overdue: boolean;
+}
