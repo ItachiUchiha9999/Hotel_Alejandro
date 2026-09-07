@@ -111,6 +111,7 @@ export interface Comprobante {
   issue_date: string;
   due_date: string | null;
   total_amount: string | number;
+  paid_amount: string | number;
   pending_amount: string | number;
   voucher_status: "PENDIENTE" | "PAGADO" | "ANULADO";
   is_overdue: boolean;

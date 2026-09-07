@@ -1,9 +1,27 @@
 const asyncHandler = require('../../utils/asyncHandler');
+
 const service = require('./comprobantes.service');
+
 const listar = asyncHandler(async (req, res) => {
   const data = await service.listar({
-    supplierId: req.query.supplier_id,
-    payable: req.query.payable === 'true',
+    supplierId:
+      req.query.proveedor ??
+      req.query.supplier_id,
+
+    voucherTypeId:
+      req.query.tipo,
+
+    estado:
+      req.query.estado,
+
+    desde:
+      req.query.desde,
+
+    hasta:
+      req.query.hasta,
+
+    payable:
+      req.query.payable === 'true',
   });
 
   res.json({
@@ -11,18 +29,35 @@ const listar = asyncHandler(async (req, res) => {
     data,
   });
 });
+
 const obtener = asyncHandler(async (req, res) => {
-  const data = await service.obtener(req.params.id);
-  res.json({ ok: true, data });
+  const data = await service.obtener(
+    req.params.id
+  );
+
+  res.json({
+    ok: true,
+    data,
+  });
 });
 
 const crear = asyncHandler(async (req, res) => {
   const data = await service.crear({
     ...req.body,
-    // Cuando exista login (STK-06), acá va req.user.employees_id.
-    employees_id: req.body.employees_id ?? null,
+
+    employees_id:
+      req.body.employees_id ?? null,
   });
-  res.status(201).json({ ok: true, message: 'Comprobante registrado.', data });
+
+  res.status(201).json({
+    ok: true,
+    message: 'Comprobante registrado.',
+    data,
+  });
 });
 
-module.exports = { listar, obtener, crear };
+module.exports = {
+  listar,
+  obtener,
+  crear,
+};
