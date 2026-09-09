@@ -1,4 +1,5 @@
 const prisma = require('../../db/prisma');
+const { Prisma } = require('@prisma/client');
 const env = require('../../config/env');
 const { noEncontrado, conflicto, invalido } = require('../../utils/AppError');
 const { toId, toPositive, toText } = require('../../utils/parse');
@@ -12,8 +13,10 @@ const { toId, toPositive, toText } = require('../../utils/parse');
  *   - no permite duplicar un comprobante para el mismo proveedor
  *   - queda como pendiente de pago al ingresar
  *
- * El listado de acá es el mínimo para poder ver lo que se registra. Los filtros
- * por tipo, fecha y estado, y el detalle con saldos, son de PROV-03.
+ * PROV-04 — "Consultar y administrar comprobantes de un proveedor" agrega a
+ * `listar` los filtros combinables por tipo, estado y rango de fechas (ver
+ * abajo). El detalle con movimientos de cuenta relacionados queda para
+ * PROV-05/06.
  */
 
 /** Fecha en formato YYYY-MM-DD, o null si no es válida. */
@@ -24,24 +27,79 @@ const toDate = (valor) => {
   return Number.isNaN(fecha.getTime()) ? null : fecha;
 };
 
+/** Estados válidos de comprobante (coincide con el CHECK de la base). */
+const ESTADOS_VALIDOS = ['PENDIENTE', 'PAGADO', 'ANULADO'];
+
+/** Estado de comprobante en mayúsculas si es válido, o null. No filtra si viene vacío. */
+const toEstado = (valor) => {
+  const texto = toText(valor);
+  if (!texto) return null;
+  const estado = texto.toUpperCase();
+  if (!ESTADOS_VALIDOS.includes(estado)) {
+    throw invalido(`El estado "${valor}" no es válido. Usá PENDIENTE, PAGADO o ANULADO.`);
+  }
+  return estado;
+};
+
 /**
  * Los datos de lectura salen de la vista v_supplier_voucher_balance, que ya
  * calcula el saldo pendiente y marca los vencidos. Prisma no mapea vistas, así
  * que se consulta con SQL crudo.
+ *
+ * Filtros combinables, todos opcionales (AND entre los que estén presentes):
+ *   - supplierId:     v_supplier_voucher_balance.supplier_id
+ *   - voucherTypeId:  id del tipo de comprobante (voucher_type.voucher_type_id)
+ *   - estado:         voucher_status ('PENDIENTE' | 'PAGADO' | 'ANULADO')
+ *   - desde / hasta:  rango sobre issue_date, formato 'YYYY-MM-DD'
+ *
+ * Nota sobre voucherTypeId: la vista expone `voucher_type` como el NOMBRE del
+ * tipo (texto), no su ID — no tiene columna voucher_type_id (ver columnas de
+ * la vista en la definición de la tarea). Por eso, cuando se filtra por
+ * voucherTypeId, se une con la tabla voucher_type por el nombre (que es
+ * UNIQUE) para poder comparar por ID en vez de por texto. Si en algún momento
+ * se agrega voucher_type_id directamente a la vista, este JOIN deja de ser
+ * necesario y se puede filtrar sobre v.voucher_type_id sin tocar voucher_type.
+ * Avisen si prefieren resolverlo agregando la columna a la vista en su lugar.
+ *
+ * Los comprobantes ANULADOS (baja lógica) se siguen listando igual que
+ * cualquier otro estado: no hay ningún filtro implícito que los oculte, salvo
+ * que se pida explícitamente `estado` distinto de ANULADO.
  */
-const listar = async ({ supplierId } = {}) => {
-  const id = toId(supplierId);
+const listar = async (filtros = {}) => {
+  const supplierId = toId(filtros.supplierId);
+  const voucherTypeId = toId(filtros.voucherTypeId);
+  const estado = toEstado(filtros.estado);
+  const desde = toDate(filtros.desde);
+  const hasta = toDate(filtros.hasta);
 
-  if (id) {
-    return prisma.$queryRaw`
-      SELECT * FROM v_supplier_voucher_balance
-      WHERE supplier_id = ${id}
-      ORDER BY issue_date DESC, voucher_id DESC`;
+  if (desde && hasta && hasta < desde) {
+    throw invalido('El rango de fechas no es válido: "hasta" no puede ser anterior a "desde".');
   }
 
+  const condiciones = [];
+  if (supplierId) condiciones.push(Prisma.sql`v.supplier_id = ${supplierId}`);
+  if (estado) condiciones.push(Prisma.sql`v.voucher_status = ${estado}`);
+  if (desde) condiciones.push(Prisma.sql`v.issue_date >= ${desde}`);
+  if (hasta) condiciones.push(Prisma.sql`v.issue_date <= ${hasta}`);
+
+  // El JOIN con voucher_type solo se agrega cuando hace falta filtrar por ID
+  // de tipo: así, sin ese filtro, la consulta queda idéntica a la anterior.
+  let origen = Prisma.sql`v_supplier_voucher_balance v`;
+  if (voucherTypeId) {
+    origen = Prisma.sql`v_supplier_voucher_balance v
+      JOIN voucher_type vt ON vt.voucher_type = v.voucher_type`;
+    condiciones.push(Prisma.sql`vt.voucher_type_id = ${voucherTypeId}`);
+  }
+
+  const where = condiciones.length
+    ? Prisma.sql`WHERE ${Prisma.join(condiciones, ' AND ')}`
+    : Prisma.empty;
+
   return prisma.$queryRaw`
-    SELECT * FROM v_supplier_voucher_balance
-    ORDER BY issue_date DESC, voucher_id DESC`;
+    SELECT v.*
+    FROM ${origen}
+    ${where}
+    ORDER BY v.issue_date DESC, v.voucher_id DESC`;
 };
 
 const obtener = async (id) => {

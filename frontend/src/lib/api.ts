@@ -35,7 +35,14 @@ async function request<T>(ruta: string, init?: RequestInit): Promise<T> {
       cache: "no-store",
       ...init,
     });
-  } catch {
+  } catch (err) {
+    // Si la request fue cancelada a propósito (AbortController, usado para
+    // descartar respuestas de filtros que ya quedaron obsoletos), no es un
+    // error de conexión: hay que dejar pasar el AbortError tal cual para que
+    // quien llamó pueda distinguirlo y lo ignore en silencio.
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw err;
+    }
     throw new ApiError(
       "No se pudo conectar con el servidor. Verificá que el backend esté corriendo.",
       0,
@@ -55,7 +62,7 @@ async function request<T>(ruta: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  get: <T>(ruta: string) => request<T>(ruta),
+  get: <T>(ruta: string, init?: RequestInit) => request<T>(ruta, init),
   post: <T>(ruta: string, body?: Payload) =>
     request<T>(ruta, { method: "POST", body: JSON.stringify(body ?? {}) }),
   put: <T>(ruta: string, body?: Payload) =>
