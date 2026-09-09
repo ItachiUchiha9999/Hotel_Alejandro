@@ -33,6 +33,7 @@ export const MODULOS: ItemNavegacion[] = [
     hijos: [
       { nombre: "Stock por depósito", ruta: "/stock" },
       { nombre: "Depósitos", ruta: "/stock/depositos" },
+
       { nombre: "Tipos de movimiento", ruta: "/stock/tipos-movimiento" },
       { nombre: "Transferencias", ruta: "/stock/transfers" },
     ],
@@ -43,6 +44,10 @@ export const MODULOS: ItemNavegacion[] = [
     ruta: "/proveedores",
     hijos: [
       { nombre: "Comprobantes", ruta: "/proveedores/comprobantes" },
+      {
+        nombre: "Órdenes de compra",
+        ruta: "/proveedores/ordenes-compra",
+      },
       //{ nombre: "Registrar comprobante", ruta: "/proveedores/comprobantes/nuevo" },
     ],
   },

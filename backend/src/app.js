@@ -4,7 +4,8 @@ const cors = require('cors');
 const env = require('./config/env');
 const errorHandler = require('./middlewares/errorHandler');
 const notFound = require('./middlewares/notFound');
-
+const ordenesCompraRoutes =
+  require('./modules/ordenes-compra/ordenesCompra.routes');
 const depositosRoutes = require('./modules/depositos/depositos.routes');
 const articulosRoutes = require('./modules/articulos/articulos.routes');
 const categoriasRoutes = require('./modules/categorias/categorias.routes');
@@ -52,7 +53,10 @@ app.use('/api/deposits', depositosRoutes);
 app.use('/api/movement-types', tiposMovimientoRoutes);
 app.use('/api/catalog', catalogoRoutes);
 app.use('/api/stock-movements', stockRoutes);
-
+app.use(
+  '/api/ordenes-compra',
+  ordenesCompraRoutes
+);
 app.use(notFound);
 app.use(errorHandler);
 
