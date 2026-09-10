@@ -11,10 +11,10 @@ import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
  *   </TBody>
  * </Table>
  */
-export function Table({ children }: { children: ReactNode }) {
+export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className="-mx-6 overflow-x-auto">
-      <table className="w-full min-w-[36rem] border-collapse text-sm">
+      <table className={cn("w-full min-w-[36rem] border-collapse text-sm", className)}>
         {children}
       </table>
     </div>
@@ -39,7 +39,7 @@ export function TH({
       {...props}
       scope="col"
       className={cn(
-        "px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-carbon/60",
+        "px-6 py-3 align-middle text-left text-xs font-semibold uppercase tracking-wide text-carbon/60",
         className,
       )}
     >
@@ -62,7 +62,7 @@ export function TD({
   ...props
 }: TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <td {...props} className={cn("px-6 py-3 text-carbon/90", className)}>
+    <td {...props} className={cn("px-6 py-3 align-middle text-carbon/90", className)}>
       {children}
     </td>
   );

@@ -429,9 +429,9 @@ export default function OrdenesPagoPage() {
   return (
     <>
       <PageHeader
-        eyebrow="PROV-05 · TESORERÍA"
+        eyebrow=""
         titulo="Órdenes de pago"
-        descripcion="Emisión de pagos a proveedores, imputación de facturas pendientes y egresos de caja."
+        descripcion=""
         acciones={
           <Button
             onClick={() => {

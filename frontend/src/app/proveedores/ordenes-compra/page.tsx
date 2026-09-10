@@ -735,9 +735,9 @@
     return (
         <>
         <PageHeader
-            eyebrow="PROV-10 · COMPRAS"
+            eyebrow=""
             titulo="Órdenes de compra"
-            descripcion="Generá solicitudes de compra y realizá su seguimiento hasta la recepción."
+            descripcion=""
             acciones={
             <Button
                 onClick={

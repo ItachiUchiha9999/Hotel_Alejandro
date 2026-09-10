@@ -93,6 +93,10 @@ export const MODULOS: ItemNavegacion[] = [
         nombre: "Órdenes de pago",
         ruta: "/proveedores/ordenes-pago",
       },
+      {
+        nombre: "Cuenta corriente",
+        ruta: "/proveedores/cuenta-corriente",
+      },
     ],
   },
 

@@ -186,7 +186,7 @@ export default function ComprobantesPage() {
       <PageHeader
         eyebrow=""
         titulo="Comprobantes de proveedores"
-        descripcion="Documentación recibida de cada proveedor, con su estado y su saldo pendiente."
+        descripcion=""
         acciones={
           <Link href="/proveedores/comprobantes/nuevo">
             <Button>Registrar comprobante</Button>
