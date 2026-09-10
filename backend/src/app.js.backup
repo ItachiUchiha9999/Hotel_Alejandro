@@ -16,8 +16,6 @@ const comprobantesRoutes = require('./modules/comprobantes/comprobantes.routes')
 const proveedoresRoutes = require('./modules/proveedores/proveedores.routes');
 const tiposComprobanteRoutes = require('./modules/tipos-comprobante/tiposComprobante.routes');
 const condicionesFiscalesRoutes = require('./modules/condiciones-fiscales/condicionesFiscales.routes');
-const metodosPagoRoutes = require('./modules/metodos-pago/metodosPago.routes');
-const ordenesPagoRoutes = require('./modules/ordenes-pago/ordenesPago.routes');
 
 
 const app = express();
@@ -27,6 +25,9 @@ app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Rutas. TODAS las del sistema se montan acá.
+// Antes había tres entry points distintos (index.js, src/index.js,
+// src/server.js) y cada uno levantaba solo una parte de la API, así que
+// siempre quedaba la mitad de las pantallas apuntando a un 404.
 // ---------------------------------------------------------------------------
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, service: 'SIGH — Hotel Alejandro I', env: env.NODE_ENV })
@@ -44,17 +45,20 @@ app.use('/api/proveedores', proveedoresRoutes);
 app.use('/api/condiciones-fiscales', condicionesFiscalesRoutes);
 app.use('/api/tipos-comprobante', tiposComprobanteRoutes);
 app.use('/api/comprobantes', comprobantesRoutes);
-app.use('/api/metodos-pago', metodosPagoRoutes);
-app.use('/api/ordenes-pago', ordenesPagoRoutes);
-app.use('/api/ordenes-compra', ordenesCompraRoutes);
 
 // ---------------------------------------------------------------------------
-// Alias en inglés.
+// Alias en inglés. Los usaban las pantallas de la rama STK-04/STK-05, que
+// apuntaban a un backend propio en el puerto 3001. Se mantienen para que esas
+// vistas sigan funcionando contra este servidor.
 // ---------------------------------------------------------------------------
 app.use('/api/deposits', depositosRoutes);
 app.use('/api/movement-types', tiposMovimientoRoutes);
 app.use('/api/catalog', catalogoRoutes);
 app.use('/api/stock-movements', stockRoutes);
+app.use(
+  '/api/ordenes-compra',
+  ordenesCompraRoutes
+);
 
 app.use(notFound);
 app.use(errorHandler);
