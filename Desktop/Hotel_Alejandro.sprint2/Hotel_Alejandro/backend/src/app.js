@@ -19,6 +19,9 @@ const condicionesFiscalesRoutes = require('./modules/condiciones-fiscales/condic
 const metodosPagoRoutes = require('./modules/metodos-pago/metodosPago.routes');
 const ordenesPagoRoutes = require('./modules/ordenes-pago/ordenesPago.routes');
 const cuentaCorrienteRoutes = require('./modules/cuenta-corriente/cuentaCorriente.routes');
+const tiposHabitacionRoutes = require('./modules/tipos-habitacion/tiposHabitacion.routes');
+const habitacionesRoutes = require('./modules/habitaciones/habitaciones.routes');
+
 
 const app = express();
 
@@ -48,6 +51,10 @@ app.use('/api/metodos-pago', metodosPagoRoutes);
 app.use('/api/ordenes-pago', ordenesPagoRoutes);
 app.use('/api/ordenes-compra', ordenesCompraRoutes);
 app.use('/api/cuenta-corriente', cuentaCorrienteRoutes);
+
+// Sprint 3 — reservas y gestión de habitaciones
+app.use('/api/tipos-habitacion', tiposHabitacionRoutes);
+app.use('/api/habitaciones', habitacionesRoutes);
 // ---------------------------------------------------------------------------
 // Alias en inglés.
 // ---------------------------------------------------------------------------

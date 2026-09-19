@@ -100,7 +100,14 @@ export const MODULOS: ItemNavegacion[] = [
     ],
   },
 
-
+{
+    nombre: "Habitaciones",
+    ruta: "/habitaciones",
+    hijos: [
+      { nombre: "Inventario", ruta: "/habitaciones" },
+      { nombre: "Tipos de habitación", ruta: "/habitaciones/tipos" },
+    ],
+  },
 
   {
 

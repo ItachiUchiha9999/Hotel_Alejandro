@@ -116,3 +116,32 @@ export interface Comprobante {
   voucher_status: "PENDIENTE" | "PAGADO" | "ANULADO";
   is_overdue: boolean;
 }
+
+/* ---------------------------------------------------------------------------
+ * Sprint 3 — Habitaciones (HAB-03, HAB-01)
+ * ------------------------------------------------------------------------- */
+
+export type EstadoHabitacion = "DISPONIBLE" | "OCUPADA" | "MANTENIMIENTO";
+
+export interface TipoHabitacion {
+  room_type_id: number;
+  room_type_name: string;
+  room_type_description: string | null;
+  room_type_max_capacity: number;
+  room_type_state: boolean;
+  /** Cuántas habitaciones tienen asignado este tipo (bloquea la eliminación). */
+  rooms_count: number;
+}
+
+export interface Habitacion {
+  room_id: number;
+  room_number: string;
+  room_type_id: number;
+  room_state: EstadoHabitacion;
+  room_type: {
+    room_type_id: number;
+    room_type_name: string;
+    room_type_max_capacity: number;
+    room_type_state: boolean;
+  };
+}
