@@ -464,3 +464,28 @@ model purchase_order_status_history {
 
   @@index([purchase_order_id], map: "idx_status_history_order")
 }
+
+// ===========================================================================
+// SPRINT 3 - Habitaciones (HAB-03 y HAB-01)
+// Modelos sobre las tablas que YA existen en la base (room_type y room).
+// ===========================================================================
+
+model room_type {
+  room_type_id           Int     @id @default(autoincrement())
+  room_type_name         String  @unique @db.VarChar(60)
+  room_type_description  String? @map("description") @db.VarChar(255)
+  room_type_max_capacity Int     @map("max_capacity") @db.SmallInt
+  room_type_state        Boolean @default(true) @map("active")
+  room                   room[]
+}
+
+model room {
+  room_id      Int       @id @default(autoincrement())
+  room_number  String    @unique @db.VarChar(10)
+  room_type_id Int
+  room_state   String    @default("DISPONIBLE") @map("room_status") @db.VarChar(20)
+  room_type    room_type @relation(fields: [room_type_id], references: [room_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_room_type")
+
+  @@index([room_type_id], map: "idx_room_type")
+  @@index([room_state], map: "idx_room_status")
+}

@@ -22,7 +22,6 @@ const cuentaCorrienteRoutes = require('./modules/cuenta-corriente/cuentaCorrient
 const tiposHabitacionRoutes = require('./modules/tipos-habitacion/tiposHabitacion.routes');
 const habitacionesRoutes = require('./modules/habitaciones/habitaciones.routes');
 
-
 const app = express();
 
 app.use(cors({ origin: env.CORS_ORIGINS }));

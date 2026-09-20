@@ -99,8 +99,7 @@ export const MODULOS: ItemNavegacion[] = [
       },
     ],
   },
-
-{
+   {
     nombre: "Habitaciones",
     ruta: "/habitaciones",
     hijos: [
@@ -108,6 +107,8 @@ export const MODULOS: ItemNavegacion[] = [
       { nombre: "Tipos de habitación", ruta: "/habitaciones/tipos" },
     ],
   },
+
+
 
   {
 

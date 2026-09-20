@@ -3,22 +3,31 @@ const { noEncontrado, conflicto, invalido } = require('../../utils/AppError');
 const { toId, toText } = require('../../utils/parse');
 
 /**
- * Habitaciones (HAB-01).
+ * Habitaciones (HAB-01)
  *
- * Reglas del backlog:
- *  - El número de habitación es único.
- *  - Se asigna obligatoriamente un tipo existente y ACTIVO.
- *  - El estado inicial por defecto es 'DISPONIBLE'.
- *
- * El estado NO se edita desde acá: lo mueven HAB-06 (mantenimiento/limpieza),
- * RES-09 (check-in, pasa a OCUPADA) y RES-11 (check-out).
+ * Toda habitación nace DISPONIBLE.
  */
 
-const NUMERO_MAX = 10;
+const ESTADO_INICIAL = 'DISPONIBLE';
 
-/** Estados en los que se puede dar de alta una habitación. OCUPADA solo sale de un check-in. */
-const ESTADOS_INICIALES = ['DISPONIBLE', 'MANTENIMIENTO'];
+/**
+ * Estados permitidos para una habitación.
+ */
+const ESTADOS = [
+  'DISPONIBLE',
+  'OCUPADA',
+  'MANTENIMIENTO',
+];
 
+/**
+ * Número de habitación válido.
+ * Ejemplos: 101, 202, 2-A
+ */
+const NUMERO_VALIDO = /^[A-Z0-9][A-Z0-9-]{0,9}$/;
+
+/**
+ * Datos del tipo de habitación que necesita la pantalla.
+ */
 const CON_TIPO = {
   room_type: {
     select: {
@@ -30,93 +39,232 @@ const CON_TIPO = {
   },
 };
 
-const listar = async () =>
-  prisma.room.findMany({ include: CON_TIPO, orderBy: { room_number: 'asc' } });
+/**
+ * Normaliza y valida el número de habitación.
+ */
+const normalizarNumero = (valor) => {
+  const numero = toText(valor)?.toUpperCase();
 
-const obtener = async (id) => {
-  const roomId = toId(id);
-  if (!roomId) throw invalido('El identificador de la habitación no es válido.');
-
-  const habitacion = await prisma.room.findUnique({
-    where: { room_id: roomId },
-    include: CON_TIPO,
-  });
-  if (!habitacion) throw noEncontrado('La habitación no existe.');
-  return habitacion;
-};
-
-const leerNumero = (datos) => {
-  const numero = toText(datos.room_number ?? datos.numero);
-  if (!numero) throw invalido('El número de habitación es obligatorio.');
-  if (numero.length > NUMERO_MAX) {
-    throw invalido(`El número de habitación admite hasta ${NUMERO_MAX} caracteres.`);
+  if (!numero) {
+    throw invalido(
+      'El número de habitación es obligatorio.'
+    );
   }
+
+  if (!NUMERO_VALIDO.test(numero)) {
+    throw invalido(
+      'El número de habitación solo puede llevar letras, números y guion, hasta 10 caracteres (por ejemplo 101 o 2-A).'
+    );
+  }
+
   return numero;
 };
 
-const leerTipoId = (datos) => {
-  const tipoId = toId(datos.room_type_id ?? datos.tipo_id);
-  if (!tipoId) throw invalido('Seleccioná un tipo de habitación.');
-  return tipoId;
-};
+/**
+ * Orden natural:
+ * 2 antes que 10
+ * 101 antes que 201
+ */
+const porNumero = (a, b) =>
+  a.room_number.localeCompare(
+    b.room_number,
+    'es',
+    { numeric: true }
+  );
 
-/** "101" y "101" iguales; también "a1" y "A1" (sin distinguir mayúsculas). */
-const validarNumeroLibre = async (numero, excluirId) => {
-  const repetida = await prisma.room.findFirst({
-    where: {
-      room_number: { equals: numero, mode: 'insensitive' },
-      ...(excluirId ? { room_id: { not: excluirId } } : {}),
-    },
-  });
-  if (repetida) {
-    throw conflicto(`Ya existe la habitación número "${repetida.room_number}". Usá otro número.`);
+/**
+ * LISTAR HABITACIONES
+ */
+const listar = async ({ tipo, estado } = {}) => {
+  const where = {};
+
+  // Filtrar por tipo
+  const tipoId = toId(tipo);
+
+  if (tipoId) {
+    where.room_type_id = tipoId;
   }
+
+  // Filtrar por estado
+  const estadoFiltro = toText(estado)?.toUpperCase();
+
+  if (estadoFiltro) {
+    if (!ESTADOS.includes(estadoFiltro)) {
+      throw invalido(
+        `El estado tiene que ser uno de: ${ESTADOS.join(', ')}.`
+      );
+    }
+
+    where.room_state = estadoFiltro;
+  }
+
+  const habitaciones = await prisma.room.findMany({
+    where,
+    include: CON_TIPO,
+  });
+
+  return habitaciones.sort(porNumero);
 };
 
-const validarTipoActivo = async (tipoId) => {
-  const tipo = await prisma.room_type.findUnique({ where: { room_type_id: tipoId } });
-  if (!tipo) throw invalido('El tipo de habitación seleccionado no existe.');
-  if (!tipo.room_type_state) {
+/**
+ * OBTENER UNA HABITACIÓN
+ */
+const obtener = async (id) => {
+  const roomId = toId(id);
+
+  if (!roomId) {
     throw invalido(
-      `El tipo "${tipo.room_type_name}" está inactivo. Elegí un tipo activo o reactivalo.`
+      'El identificador de la habitación no es válido.'
     );
   }
-};
 
-const crear = async (datos = {}) => {
-  const numero = leerNumero(datos);
-  const tipoId = leerTipoId(datos);
+  const habitacion = await prisma.room.findUnique({
+    where: {
+      room_id: roomId,
+    },
+    include: CON_TIPO,
+  });
 
-  const estado = (toText(datos.room_state ?? datos.estado) ?? 'DISPONIBLE').toUpperCase();
-  if (!ESTADOS_INICIALES.includes(estado)) {
-    throw invalido('Una habitación nueva solo puede quedar Disponible o en Mantenimiento/Limpieza.');
+  if (!habitacion) {
+    throw noEncontrado(
+      'La habitación no existe.'
+    );
   }
 
-  await validarNumeroLibre(numero);
-  await validarTipoActivo(tipoId);
+  return habitacion;
+};
 
+/**
+ * CREAR UNA HABITACIÓN
+ *
+ * Toda habitación nueva comienza DISPONIBLE.
+ */
+const crear = async (datos = {}) => {
+  const numero = normalizarNumero(
+    datos.room_number ?? datos.numero
+  );
+
+  const tipoId = toId(
+    datos.room_type_id ?? datos.tipo
+  );
+
+  if (!tipoId) {
+    throw invalido(
+      'Elegí el tipo de habitación.'
+    );
+  }
+
+  // Verificar que exista el tipo
+  const tipo = await prisma.room_type.findUnique({
+    where: {
+      room_type_id: tipoId,
+    },
+  });
+
+  if (!tipo) {
+    throw invalido(
+      'El tipo de habitación elegido no existe.'
+    );
+  }
+
+  // Verificar que el tipo esté activo
+  if (!tipo.room_type_state) {
+    throw conflicto(
+      `El tipo "${tipo.room_type_name}" está inactivo. Activalo desde el catálogo o elegí otro.`
+    );
+  }
+
+  // Verificar que no exista otra habitación con ese número
+  const repetida = await prisma.room.findUnique({
+    where: {
+      room_number: numero,
+    },
+    select: {
+      room_id: true,
+    },
+  });
+
+  if (repetida) {
+    throw conflicto(
+      `Ya existe la habitación ${numero}. Usá otro número.`
+    );
+  }
+
+  // Crear habitación
   return prisma.room.create({
-    data: { room_number: numero, room_type_id: tipoId, room_state: estado },
+    data: {
+      room_number: numero,
+      room_type_id: tipo.room_type_id,
+      room_state: ESTADO_INICIAL,
+    },
     include: CON_TIPO,
   });
 };
 
-/** Edita número y tipo. El estado se ignora a propósito (ver cabecera). */
-const actualizar = async (id, datos = {}) => {
-  const actual = await obtener(id);
-  const numero = leerNumero(datos);
-  const tipoId = leerTipoId(datos);
+/**
+ * CAMBIAR ESTADO DE UNA HABITACIÓN
+ *
+ * Estados permitidos:
+ * DISPONIBLE
+ * OCUPADA
+ * MANTENIMIENTO
+ */
+const cambiarEstado = async (id, estado) => {
+  const roomId = toId(id);
 
-  await validarNumeroLibre(numero, actual.room_id);
-  // Solo se exige tipo activo si realmente cambia: una habitación puede seguir
-  // con su tipo aunque ese tipo se haya desactivado después.
-  if (tipoId !== actual.room_type_id) await validarTipoActivo(tipoId);
+  if (!roomId) {
+    throw invalido(
+      'El identificador de la habitación no es válido.'
+    );
+  }
 
+  const nuevoEstado = toText(estado)?.toUpperCase();
+
+  if (
+    !nuevoEstado ||
+    !ESTADOS.includes(nuevoEstado)
+  ) {
+    throw invalido(
+      `El estado tiene que ser uno de: ${ESTADOS.join(', ')}.`
+    );
+  }
+
+  // Verificar que la habitación exista
+  const habitacion = await prisma.room.findUnique({
+    where: {
+      room_id: roomId,
+    },
+  });
+
+  if (!habitacion) {
+    throw noEncontrado(
+      'La habitación no existe.'
+    );
+  }
+
+  // Actualizar estado
   return prisma.room.update({
-    where: { room_id: actual.room_id },
-    data: { room_number: numero, room_type_id: tipoId },
+    where: {
+      room_id: roomId,
+    },
+    data: {
+      room_state: nuevoEstado,
+    },
     include: CON_TIPO,
   });
 };
 
-module.exports = { ESTADOS_INICIALES, listar, obtener, crear, actualizar };
+/**
+ * EXPORTACIONES
+ *
+ * IMPORTANTE:
+ * listar y cambiarEstado tienen que estar acá.
+ */
+module.exports = {
+  ESTADOS,
+  ESTADO_INICIAL,
+  listar,
+  obtener,
+  crear,
+  cambiarEstado,
+};

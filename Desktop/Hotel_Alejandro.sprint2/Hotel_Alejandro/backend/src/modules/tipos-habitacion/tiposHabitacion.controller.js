@@ -24,14 +24,13 @@ const actualizar = asyncHandler(async (req, res) => {
 const cambiarEstado = asyncHandler(async (req, res) => {
   const data = await service.cambiarEstado(
     req.params.id,
-    req.body?.estado ?? req.body?.room_type_state
+    req.body?.room_type_state ?? req.body?.estado
   );
-  res.json({ ok: true, message: 'Estado actualizado.', data });
+  res.json({
+    ok: true,
+    message: data.room_type_state ? 'Tipo de habitación activado.' : 'Tipo de habitación desactivado.',
+    data,
+  });
 });
 
-const eliminar = asyncHandler(async (req, res) => {
-  const data = await service.eliminar(req.params.id);
-  res.json({ ok: true, message: 'Tipo de habitación eliminado.', data });
-});
-
-module.exports = { listar, obtener, crear, actualizar, cambiarEstado, eliminar };
+module.exports = { listar, obtener, crear, actualizar, cambiarEstado };

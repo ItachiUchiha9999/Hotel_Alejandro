@@ -116,7 +116,6 @@ export interface Comprobante {
   voucher_status: "PENDIENTE" | "PAGADO" | "ANULADO";
   is_overdue: boolean;
 }
-
 /* ---------------------------------------------------------------------------
  * Sprint 3 — Habitaciones (HAB-03, HAB-01)
  * ------------------------------------------------------------------------- */

@@ -1,25 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { TipoHabitacionForm } from "@/components/habitaciones/TipoHabitacionForm";
-import { Badge, Button, Card, EmptyState, InfoBox, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
+import { Card, InfoBox, EmptyState } from "@/components/ui";
+import { TiposHabitacionTable } from "@/components/habitaciones/TiposHabitacionTable";
 import { api, ApiError } from "@/lib/api";
 import type { TipoHabitacion } from "@/lib/types";
+import Link from "next/link";
+import { Plus } from "lucide-react";
 
-/** HAB-03 · ABM de tipos de habitación. */
 export default function TiposHabitacionPage() {
+  const router = useRouter();
   const [tipos, setTipos] = useState<TipoHabitacion[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [editando, setEditando] = useState<TipoHabitacion | null>(null);
 
   const cargar = useCallback(async () => {
-    setCargando(true);
-    setError(null);
     try {
       setTipos(await api.get<TipoHabitacion[]>("/tipos-habitacion"));
+      setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudieron cargar los tipos de habitación.");
     } finally {
@@ -31,130 +32,64 @@ export default function TiposHabitacionPage() {
     cargar();
   }, [cargar]);
 
-  async function alGuardar(mensaje: string) {
-    setAviso(mensaje);
-    setEditando(null);
-    await cargar();
-  }
-
   async function alternarEstado(tipo: TipoHabitacion) {
     setAviso(null);
-    setError(null);
     try {
-      await api.patch(`/tipos-habitacion/${tipo.room_type_id}/estado`, { estado: !tipo.room_type_state });
+      // Validamos si viene como room_type_state o active desde el backend
+      const estadoActual = tipo.room_type_state !== undefined ? tipo.room_type_state : tipo.active;
+      
+      await api.patch(`/tipos-habitacion/${tipo.room_type_id}/estado`, { estado: !estadoActual });
       await cargar();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo cambiar el estado.");
     }
   }
 
-  async function eliminar(tipo: TipoHabitacion) {
-    if (!window.confirm(`¿Eliminar el tipo "${tipo.room_type_name}"? Esta acción no se puede deshacer.`)) return;
-    setAviso(null);
-    setError(null);
-    try {
-      await api.delete(`/tipos-habitacion/${tipo.room_type_id}`);
-      if (editando?.room_type_id === tipo.room_type_id) setEditando(null);
-      setAviso("Tipo de habitación eliminado.");
-      await cargar();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo eliminar el tipo de habitación.");
-    }
-  }
-
   return (
-    <>
+    <div className="flex flex-col min-h-full w-full">
       <PageHeader
-        eyebrow="HAB-03 · Sprint 3"
+        eyebrow=""
         titulo="Tipos de habitación"
-        descripcion="Estandarizá la oferta de alojamiento del hotel y agrupá el inventario por tipo."
+        descripcion=""
       />
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
-        {/* Tabla — fracción mayor */}
-        <Card titulo="Catálogo de tipos">
-          {aviso && <InfoBox tipo="exito">{aviso}</InfoBox>}
+      {(error || aviso) && (
+        <div className="mb-5 flex flex-col gap-3">
           {error && <InfoBox tipo="error">{error}</InfoBox>}
+          {aviso && <InfoBox tipo="exito">{aviso}</InfoBox>}
+        </div>
+      )}
 
+      <div className="flex justify-end mb-6 mt-4">
+        <Link 
+          href="/habitaciones/tipos/nuevo" 
+          className="flex items-center gap-2 px-4 py-2 bg-gold hover:bg-gold-dark text-carbon font-semibold rounded-md text-sm transition-colors shadow-sm"
+        >
+          <Plus size={16} />
+          Nuevo tipo de habitación
+        </Link>
+      </div>
+
+      <div className="w-full">
+        <Card titulo="Tipos definidos" descripcion="Un tipo inactivo no se ofrece al registrar nuevas habitaciones.">
           {cargando ? (
-            <p className="py-10 text-center text-sm text-carbon/50">Cargando tipos de habitación…</p>
+            <p className="py-10 text-center text-sm text-carbon/50">Cargando catálogo…</p>
           ) : tipos.length === 0 ? (
             <EmptyState
               titulo="Todavía no hay tipos de habitación"
-              descripcion="Creá el primero desde el formulario (por ejemplo Simple, Doble o Suite)."
+              descripcion="Registrá el primero haciendo clic en el botón superior."
             />
           ) : (
-            <Table>
-              <THead>
-                <TH>Tipo</TH>
-                <TH className="text-center">Capacidad</TH>
-                <TH className="text-center">Habitaciones</TH>
-                <TH>Estado</TH>
-                <TH className="text-right">Acciones</TH>
-              </THead>
-              <TBody>
-                {tipos.map((t) => (
-                  <TR key={t.room_type_id}>
-                    <TD>
-                      <p className="font-medium">{t.room_type_name}</p>
-                      {t.room_type_description && (
-                        <p className="mt-0.5 text-xs text-carbon/50">{t.room_type_description}</p>
-                      )}
-                    </TD>
-                    <TD className="text-center">{t.room_type_max_capacity}</TD>
-                    <TD className="text-center">{t.rooms_count}</TD>
-                    <TD>
-                      <Badge tono={t.room_type_state ? "activo" : "inactivo"}>
-                        {t.room_type_state ? "Activo" : "Inactivo"}
-                      </Badge>
-                    </TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button tamano="sm" variante="secundario" onClick={() => setEditando(t)}>
-                          Editar
-                        </Button>
-                        <Button
-                          tamano="sm"
-                          variante={t.room_type_state ? "peligro" : "secundario"}
-                          onClick={() => alternarEstado(t)}
-                        >
-                          {t.room_type_state ? "Desactivar" : "Activar"}
-                        </Button>
-                        <Button
-                          tamano="sm"
-                          variante="peligro"
-                          disabled={t.rooms_count > 0}
-                          title={
-                            t.rooms_count > 0
-                              ? "No se puede eliminar: tiene habitaciones asociadas"
-                              : "Eliminar tipo"
-                          }
-                          onClick={() => eliminar(t)}
-                        >
-                          Eliminar
-                        </Button>
-                      </div>
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
+            <TiposHabitacionTable
+              tipos={tipos}
+              editandoId={null}
+              procesandoId={null}
+              onEditar={(tipo) => router.push(`/habitaciones/tipos/${tipo.room_type_id}`)}
+              onCambiarEstado={alternarEstado}
+            />
           )}
         </Card>
-
-        {/* Formulario — fracción menor, acompaña el scroll */}
-        <Card
-          titulo={editando ? `Editar "${editando.room_type_name}"` : "Nuevo tipo de habitación"}
-          className="xl:sticky xl:top-6 xl:self-start"
-        >
-          <TipoHabitacionForm
-            key={editando?.room_type_id ?? "nuevo"}
-            tipo={editando}
-            onGuardado={alGuardar}
-            onCancelar={() => setEditando(null)}
-          />
-        </Card>
       </div>
-    </>
+    </div>
   );
 }
