@@ -21,7 +21,9 @@ const ordenesPagoRoutes = require('./modules/ordenes-pago/ordenesPago.routes');
 const cuentaCorrienteRoutes = require('./modules/cuenta-corriente/cuentaCorriente.routes');
 const tiposHabitacionRoutes = require('./modules/tipos-habitacion/tiposHabitacion.routes');
 const habitacionesRoutes = require('./modules/habitaciones/habitaciones.routes');
-
+const tarifasRoutes = require('./modules/tarifas/tarifas.routes');
+const panelHabitacionesRoutes =
+  require('./modules/panel-habitaciones/panelHabitaciones.routes');
 const app = express();
 
 app.use(cors({ origin: env.CORS_ORIGINS }));
@@ -54,6 +56,7 @@ app.use('/api/cuenta-corriente', cuentaCorrienteRoutes);
 // Sprint 3 — reservas y gestión de habitaciones
 app.use('/api/tipos-habitacion', tiposHabitacionRoutes);
 app.use('/api/habitaciones', habitacionesRoutes);
+app.use('/api/panel-habitaciones', panelHabitacionesRoutes);
 // ---------------------------------------------------------------------------
 // Alias en inglés.
 // ---------------------------------------------------------------------------
@@ -61,6 +64,7 @@ app.use('/api/deposits', depositosRoutes);
 app.use('/api/movement-types', tiposMovimientoRoutes);
 app.use('/api/catalog', catalogoRoutes);
 app.use('/api/stock-movements', stockRoutes);
+app.use('/api/tarifas', tarifasRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

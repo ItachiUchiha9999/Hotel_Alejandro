@@ -99,14 +99,28 @@ export const MODULOS: ItemNavegacion[] = [
       },
     ],
   },
-   {
-    nombre: "Habitaciones",
-    ruta: "/habitaciones",
-    hijos: [
-      { nombre: "Inventario", ruta: "/habitaciones" },
-      { nombre: "Tipos de habitación", ruta: "/habitaciones/tipos" },
-    ],
-  },
+{
+  nombre: "Habitaciones",
+  ruta: "/habitaciones",
+  hijos: [
+    {
+      nombre: "Inventario",
+      ruta: "/habitaciones",
+    },
+    {
+      nombre: "Tipos de habitación",
+      ruta: "/habitaciones/tipos",
+    },
+    {
+      nombre: "Tarifas",
+      ruta: "/habitaciones/tarifas",
+    },
+    {
+      nombre: "Panel de habitaciones",
+      ruta: "/habitaciones/panel",
+    },
+  ],
+},
 
 
 
