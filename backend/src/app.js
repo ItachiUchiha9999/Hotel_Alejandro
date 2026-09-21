@@ -19,6 +19,7 @@ const condicionesFiscalesRoutes = require('./modules/condiciones-fiscales/condic
 const metodosPagoRoutes = require('./modules/metodos-pago/metodosPago.routes');
 const ordenesPagoRoutes = require('./modules/ordenes-pago/ordenesPago.routes');
 const cuentaCorrienteRoutes = require('./modules/cuenta-corriente/cuentaCorriente.routes');
+const housekeepingRoutes = require('./modules/housekeeping/housekeeping.routes');
 
 const app = express();
 
@@ -48,6 +49,9 @@ app.use('/api/metodos-pago', metodosPagoRoutes);
 app.use('/api/ordenes-pago', ordenesPagoRoutes);
 app.use('/api/ordenes-compra', ordenesCompraRoutes);
 app.use('/api/cuenta-corriente', cuentaCorrienteRoutes);
+
+// Sprint 3 — Housekeeping
+app.use('/api/housekeeping', housekeepingRoutes);
 // ---------------------------------------------------------------------------
 // Alias en inglés.
 // ---------------------------------------------------------------------------

@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ===========================================================================
+// SPRINT 1 — Stock e insumos (STK-01 a STK-07)
+// ===========================================================================
+
 model articles {
   article_id                Int                      @id @default(autoincrement())
   category_id               Int
@@ -70,13 +74,26 @@ model employees {
   creation_date      DateTime         @default(now()) @db.Timestamptz(6)
   roles              roles            @relation(fields: [rol_id], references: [rol_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employees_rol")
   stock_movement     stock_movement[]
-  supplier_voucher          supplier_voucher[]
-  purchase_order            purchase_order[]
-  payment_order             payment_order[]
-  payment_order_reset       payment_order_reset[]
-  supplier_account_movement supplier_account_movement[]
-  expense                   expense[]
+
+  // Sprint 2
+  supplier_voucher              supplier_voucher[]
+  purchase_order                purchase_order[]
+  payment_order                 payment_order[]
+  payment_order_reset           payment_order_reset[]
+  supplier_account_movement     supplier_account_movement[]
+  expense                       expense[]
   purchase_order_status_history purchase_order_status_history[]
+
+  // Sprint 3
+  room_type_rate             room_type_rate[]
+  room_hold                  room_hold[]
+  reservation                reservation[]
+  reservation_status_history reservation_status_history[]
+  reservation_change_log     reservation_change_log[]
+  reservation_check_in       reservation_check_in[]
+  reservation_check_out      reservation_check_out[]
+  maintenance_opened         room_maintenance[]           @relation("maintenance_opened_by")
+  maintenance_closed         room_maintenance[]           @relation("maintenance_closed_by")
 
   @@index([rol_id], map: "idx_employees_rol")
 }
@@ -139,18 +156,18 @@ model stock_movement {
 }
 
 model suppliers {
-  supplier_id         Int              @id @default(autoincrement())
-  supplier_legal_name String           @db.VarChar(150)
-  supplier_trade_name String?          @db.VarChar(150)
-  supplier_cuit       String           @unique @db.VarChar(13)
-  supplier_email      String?          @db.VarChar(150)
-  supplier_phone      String?          @db.VarChar(30)
-  supplier_address    String?          @db.VarChar(200)
-  supplier_state      Boolean          @default(true)
-  tax_condition_id    Int?
-  creation_date       DateTime         @default(now()) @db.Timestamptz(6)
-  tax_condition       tax_condition?   @relation(fields: [tax_condition_id], references: [tax_condition_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_supplier_tax_condition")
-  stock_movement      stock_movement[]
+  supplier_id               Int                         @id @default(autoincrement())
+  supplier_legal_name       String                      @db.VarChar(150)
+  supplier_trade_name       String?                     @db.VarChar(150)
+  supplier_cuit             String                      @unique @db.VarChar(13)
+  supplier_email            String?                     @db.VarChar(150)
+  supplier_phone            String?                     @db.VarChar(30)
+  supplier_address          String?                     @db.VarChar(200)
+  supplier_state            Boolean                     @default(true)
+  tax_condition_id          Int?
+  creation_date             DateTime                    @default(now()) @db.Timestamptz(6)
+  tax_condition             tax_condition?              @relation(fields: [tax_condition_id], references: [tax_condition_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_supplier_tax_condition")
+  stock_movement            stock_movement[]
   supplier_voucher          supplier_voucher[]
   payment_order             payment_order[]
   supplier_account_movement supplier_account_movement[]
@@ -160,10 +177,9 @@ model suppliers {
 
 // ===========================================================================
 // SPRINT 2 — Comprobantes de proveedores y órdenes de pago (PROV-01 a PROV-08)
-// Espejo de database/05_sprint2_proveedores.sql y 07_sprint2_gastos.sql
 // ===========================================================================
 
-/// Catálogo de tipos de comprobante (PROV-02).
+/// Catálogo de tipos de comprobante (PROV-03).
 /// `sign` define el efecto sobre la deuda: 1 la aumenta (factura, nota de
 /// débito), -1 la disminuye (nota de crédito). Misma idea que `effect` en
 /// movement_type: la lógica nunca pregunta por el nombre del tipo.
@@ -179,36 +195,36 @@ model voucher_type {
   supplier_voucher supplier_voucher[]
 }
 
-/// Comprobantes recibidos de proveedores (PROV-01, PROV-03).
+/// Comprobantes recibidos de proveedores (PROV-04, PROV-05).
 /// Tiene CHECK en la base: total_amount > 0, paid_amount entre 0 y total_amount,
 /// voucher_status IN ('PENDIENTE','PAGADO','ANULADO'), due_date >= issue_date.
 /// El estado lo mantiene el trigger tr_sync_voucher_status.
 model supplier_voucher {
-  voucher_id            Int                         @id @default(autoincrement())
-  supplier_id           Int
-  voucher_type_id       Int
-  voucher_point_of_sale String                      @default("0001") @db.VarChar(5)
-  voucher_number        String                      @db.VarChar(20)
-  issue_date            DateTime                    @db.Date
-  due_date              DateTime?                   @db.Date
-  reception_date        DateTime                    @default(now()) @db.Timestamptz(6)
-  total_amount          Decimal                     @db.Decimal(14, 2)
-  paid_amount           Decimal                     @default(0.00) @db.Decimal(14, 2)
-  voucher_status        String                      @default("PENDIENTE") @db.VarChar(20)
-  observations          String?                     @db.VarChar(255)
-  employees_id          Int
-  purchase_order_id     Int?
-  creation_date         DateTime                    @default(now()) @db.Timestamptz(6)
-  annulled_date         DateTime?                   @db.Timestamptz(6)
-  annulled_reason       String?                     @db.VarChar(255)
+  voucher_id                Int                         @id @default(autoincrement())
+  supplier_id               Int
+  voucher_type_id           Int
+  voucher_point_of_sale     String                      @default("0001") @db.VarChar(5)
+  voucher_number            String                      @db.VarChar(20)
+  issue_date                DateTime                    @db.Date
+  due_date                  DateTime?                   @db.Date
+  reception_date            DateTime                    @default(now()) @db.Timestamptz(6)
+  total_amount              Decimal                     @db.Decimal(14, 2)
+  paid_amount               Decimal                     @default(0.00) @db.Decimal(14, 2)
+  voucher_status            String                      @default("PENDIENTE") @db.VarChar(20)
+  observations              String?                     @db.VarChar(255)
+  employees_id              Int
+  purchase_order_id         Int?
+  creation_date             DateTime                    @default(now()) @db.Timestamptz(6)
+  annulled_date             DateTime?                   @db.Timestamptz(6)
+  annulled_reason           String?                     @db.VarChar(255)
 
-  suppliers             suppliers                   @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_supplier")
-  purchase_order        purchase_order?             @relation(fields: [purchase_order_id], references: [purchase_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_purchase_order")
-  voucher_type          voucher_type                @relation(fields: [voucher_type_id], references: [voucher_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_type")
-  employees             employees                   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_employees")
-  payment_order_detail  payment_order_detail[]
+  suppliers                 suppliers                   @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_supplier")
+  purchase_order            purchase_order?             @relation(fields: [purchase_order_id], references: [purchase_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_purchase_order")
+  voucher_type              voucher_type                @relation(fields: [voucher_type_id], references: [voucher_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_type")
+  employees                 employees                   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_employees")
+  payment_order_detail      payment_order_detail[]
   supplier_account_movement supplier_account_movement[]
-  expense_voucher       expense_voucher[]
+  expense_voucher           expense_voucher[]
 
   @@unique([supplier_id, voucher_type_id, voucher_point_of_sale, voucher_number], map: "uq_voucher_supplier_number")
   @@index([supplier_id], map: "idx_voucher_supplier")
@@ -218,7 +234,7 @@ model supplier_voucher {
   @@index([employees_id], map: "idx_voucher_employees")
 }
 
-/// Formas de pago (PROV-05). `requires_reference` obliga a cargar el número de
+/// Formas de pago (PROV-07). `requires_reference` obliga a cargar el número de
 /// cheque o de transferencia; el efectivo no lo necesita.
 model payment_method {
   payment_method_id  Int             @id @default(autoincrement())
@@ -229,30 +245,30 @@ model payment_method {
   payment_order      payment_order[]
 }
 
-/// Órdenes de pago (PROV-04, PROV-05, PROV-07).
+/// Órdenes de pago (PROV-06, PROV-07).
 /// payment_order_status: 0 = borrador, 1 = confirmada, 2 = anulada.
-/// Resetear (PROV-07) es volver de 1 a 0 restituyendo saldos.
+/// Resetear es volver de 1 a 0 restituyendo saldos.
 /// total_amount lo mantiene el trigger tr_sync_payment_order_total.
 model payment_order {
-  payment_order_id     Int                    @id @default(autoincrement())
-  supplier_id          Int
-  payment_method_id    Int
-  payment_date         DateTime               @db.Date
-  total_amount         Decimal                @default(0.00) @db.Decimal(14, 2)
-  payment_reference    String?                @db.VarChar(100)
-  payment_order_status Int                    @default(0) @db.SmallInt
-  observations         String?                @db.VarChar(255)
-  employees_id         Int
-  creation_date        DateTime               @default(now()) @db.Timestamptz(6)
-  confirmed_date       DateTime?              @db.Timestamptz(6)
+  payment_order_id          Int                         @id @default(autoincrement())
+  supplier_id               Int
+  payment_method_id         Int
+  payment_date              DateTime                    @db.Date
+  total_amount              Decimal                     @default(0.00) @db.Decimal(14, 2)
+  payment_reference         String?                     @db.VarChar(100)
+  payment_order_status      Int                         @default(0) @db.SmallInt
+  observations              String?                     @db.VarChar(255)
+  employees_id              Int
+  creation_date             DateTime                    @default(now()) @db.Timestamptz(6)
+  confirmed_date            DateTime?                   @db.Timestamptz(6)
 
-  suppliers            suppliers              @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_supplier")
-  payment_method       payment_method         @relation(fields: [payment_method_id], references: [payment_method_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_method")
-  employees            employees              @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_employee")
-  payment_order_detail payment_order_detail[]
-  payment_order_reset  payment_order_reset[]
+  suppliers                 suppliers                   @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_supplier")
+  payment_method            payment_method              @relation(fields: [payment_method_id], references: [payment_method_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_method")
+  employees                 employees                   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_order_employee")
+  payment_order_detail      payment_order_detail[]
+  payment_order_reset       payment_order_reset[]
   supplier_account_movement supplier_account_movement[]
-  expense_payment_order expense_payment_order[]
+  expense_payment_order     expense_payment_order[]
 
   @@index([supplier_id], map: "idx_payment_order_supplier")
   @@index([payment_date], map: "idx_payment_order_date")
@@ -260,7 +276,7 @@ model payment_order {
   @@index([payment_method_id], map: "idx_payment_order_method")
 }
 
-/// Qué importe de la orden se aplica a cada comprobante (PROV-04).
+/// Qué importe de la orden se aplica a cada comprobante (PROV-06).
 /// El trigger tr_validate_payment_detail valida que el comprobante sea del
 /// mismo proveedor y que el importe no supere el saldo pendiente.
 /// Tiene CHECK en la base: applied_amount > 0.
@@ -277,8 +293,8 @@ model payment_order_detail {
   @@index([voucher_id], map: "idx_payment_detail_voucher")
 }
 
-/// Auditoría de reseteos (PROV-07). Una orden puede resetearse más de una vez,
-/// así que cada reseteo deja su propia fila con quién, cuándo y por qué.
+/// Auditoría de reseteos. Una orden puede resetearse más de una vez, así que
+/// cada reseteo deja su propia fila con quién, cuándo y por qué.
 model payment_order_reset {
   reset_id         Int           @id @default(autoincrement())
   payment_order_id Int
@@ -293,30 +309,30 @@ model payment_order_reset {
   @@index([payment_order_id], map: "idx_reset_payment_order")
 }
 
-/// Libro mayor de cada proveedor (PROV-05, PROV-06). APPEND-ONLY: las filas no
-/// se editan ni se borran. Revertir un pago agrega un movimiento contrario que
-/// apunta al original con reversal_of_movement_id.
+/// Libro mayor de cada proveedor (PROV-07). APPEND-ONLY: las filas no se editan
+/// ni se borran. Revertir un pago agrega un movimiento contrario que apunta al
+/// original con reversal_of_movement_id.
 /// El saldo no se guarda: sale de sumar debe y haber (v_supplier_account_balance).
 /// Tiene CHECK en la base: debit y credit >= 0, y solo uno de los dos > 0.
 model supplier_account_movement {
-  account_movement_id     Int                        @id @default(autoincrement())
+  account_movement_id     Int                         @id @default(autoincrement())
   supplier_id             Int
-  movement_date           DateTime                   @default(now()) @db.Timestamptz(6)
-  concept                 String                     @db.VarChar(150)
-  debit                   Decimal                    @default(0.00) @db.Decimal(14, 2)
-  credit                  Decimal                    @default(0.00) @db.Decimal(14, 2)
+  movement_date           DateTime                    @default(now()) @db.Timestamptz(6)
+  concept                 String                      @db.VarChar(150)
+  debit                   Decimal                     @default(0.00) @db.Decimal(14, 2)
+  credit                  Decimal                     @default(0.00) @db.Decimal(14, 2)
   voucher_id              Int?
   payment_order_id        Int?
   reversal_of_movement_id Int?
   employees_id            Int
-  creation_date           DateTime                   @default(now()) @db.Timestamptz(6)
+  creation_date           DateTime                    @default(now()) @db.Timestamptz(6)
 
-  suppliers               suppliers                  @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_supplier")
-  supplier_voucher        supplier_voucher?          @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_voucher")
-  payment_order           payment_order?             @relation(fields: [payment_order_id], references: [payment_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_payment_order")
-  reversal_of             supplier_account_movement? @relation("account_reversal", fields: [reversal_of_movement_id], references: [account_movement_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_reversal")
+  suppliers               suppliers                   @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_supplier")
+  supplier_voucher        supplier_voucher?           @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_voucher")
+  payment_order           payment_order?              @relation(fields: [payment_order_id], references: [payment_order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_payment_order")
+  reversal_of             supplier_account_movement?  @relation("account_reversal", fields: [reversal_of_movement_id], references: [account_movement_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_reversal")
   reversed_by             supplier_account_movement[] @relation("account_reversal")
-  employees               employees                  @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_employee")
+  employees               employees                   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_employee")
 
   @@index([supplier_id, movement_date], map: "idx_account_supplier")
   @@index([voucher_id], map: "idx_account_voucher")
@@ -324,8 +340,7 @@ model supplier_account_movement {
 }
 
 // ---------------------------------------------------------------------------
-// PROV-08 — Control de gastos. Se despliega con 07_sprint2_gastos.sql, que es
-// un script aparte porque esta historia es la candidata a salir del sprint.
+// PROV-08 — Control de gastos (fuera del alcance comprometido del sprint).
 // ---------------------------------------------------------------------------
 
 model expense_category {
@@ -389,7 +404,6 @@ model expense_payment_order {
 
 // ---------------------------------------------------------------------------
 // PROV-01 / PROV-02 — Condición fiscal y órdenes de compra
-// Espejo de database/08_prov01_prov02.sql
 // ---------------------------------------------------------------------------
 
 /// Catálogo de condiciones fiscales (PROV-01). Define qué comprobantes puede
@@ -432,7 +446,10 @@ model purchase_order {
 
 /// Renglones de la orden. article_id es opcional porque el criterio pide
 /// "artículos o servicios", y los servicios no están en el catálogo.
-/// subtotal es columna generada en la base: no se puede escribir desde Prisma.
+///
+/// `subtotal` es COLUMNA GENERADA en la base (quantity * unit_price). Se
+/// declara opcional para poder leerla, pero NUNCA debe escribirse: si se envía
+/// en un create o un update, PostgreSQL rechaza la operación.
 model purchase_order_detail {
   purchase_detail_id Int            @id @default(autoincrement())
   purchase_order_id  Int
@@ -440,6 +457,7 @@ model purchase_order_detail {
   item_description   String         @db.VarChar(255)
   quantity           Decimal        @db.Decimal(12, 2)
   unit_price         Decimal        @db.Decimal(14, 2)
+  subtotal           Decimal?       @db.Decimal(14, 2)
 
   purchase_order     purchase_order @relation(fields: [purchase_order_id], references: [purchase_order_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_purchase_detail_order")
   articles           articles?      @relation(fields: [article_id], references: [article_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_purchase_detail_article")
@@ -463,4 +481,299 @@ model purchase_order_status_history {
   employees         employees      @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_status_history_employee")
 
   @@index([purchase_order_id], map: "idx_status_history_order")
+}
+
+// ===========================================================================
+// SPRINT 3 — Reservas y gestión de habitaciones (HAB / TAR / RES)
+// Espejo de la sección Sprint 3 de database/DB-hotel.pgsql
+//
+// NO REPRESENTABLE EN PRISMA (vive solo en la base):
+//   - Las restricciones EXCLUDE que impiden el solapamiento de reservas,
+//     tarifas, retenciones y bloqueos de mantenimiento.
+//   - Las columnas generadas nights y total_amount de reservation, declaradas
+//     acá como opcionales solo para poder leerlas.
+//   - Las vistas v_room_type_panel, v_reservation_detail, v_room_status_board
+//     y v_rate_history, y las funciones fn_available_rooms(),
+//     fn_process_no_shows() y fn_release_expired_holds(), que se consultan con
+//     prisma.$queryRaw.
+// ===========================================================================
+
+/// Parámetros configurables de la operación: plazo de no-show, duración de la
+/// retención, horarios de check-in y check-out.
+model hotel_parameter {
+  parameter_key   String   @id @db.VarChar(60)
+  parameter_value String   @db.VarChar(100)
+  description     String   @db.VarChar(255)
+  update_date     DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Catálogo de tipos de habitación (HAB-03).
+/// `max_capacity` es lo que usa la búsqueda de disponibilidad para filtrar.
+/// Tiene CHECK en la base: max_capacity > 0.
+/// El trigger tr_room_type_no_delete impide borrar un tipo con habitaciones.
+model room_type {
+  room_type_id         Int              @id @default(autoincrement())
+  room_type_name       String           @unique @db.VarChar(60)
+  description          String?          @db.VarChar(255)
+  max_capacity         Int              @db.SmallInt
+  max_adults           Int?             @db.SmallInt
+  bed_setup            String?          @db.VarChar(80)
+  square_meters        Decimal?         @db.Decimal(6, 2)
+  has_balcony          Boolean          @default(false)
+  has_minibar          Boolean          @default(false)
+  has_air_conditioning Boolean          @default(true)
+  active               Boolean          @default(true)
+  creation_date        DateTime         @default(now()) @db.Timestamptz(6)
+
+  room                 room[]
+  room_type_rate       room_type_rate[]
+}
+
+/// Historial de tarifas (TAR-01). La vigente es la que tiene valid_to en NULL.
+/// Al insertar una nueva, el trigger tr_close_previous_rate cierra la anterior.
+/// La base impide con un EXCLUDE que dos tarifas del mismo tipo se solapen.
+/// Tiene CHECK en la base: base_price > 0.
+model room_type_rate {
+  rate_id       Int           @id @default(autoincrement())
+  room_type_id  Int
+  base_price    Decimal       @db.Decimal(14, 2)
+  currency      String        @default("ARS") @db.VarChar(3)
+  valid_from    DateTime      @default(now()) @db.Date
+  valid_to      DateTime?     @db.Date
+  reason        String?       @db.VarChar(255)
+  employees_id  Int
+  creation_date DateTime      @default(now()) @db.Timestamptz(6)
+
+  room_type     room_type     @relation(fields: [room_type_id], references: [room_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_rate_room_type")
+  employees     employees     @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_rate_employee")
+  reservation   reservation[]
+
+  @@index([room_type_id], map: "idx_rate_room_type")
+}
+
+/// Inventario físico (HAB-01).
+/// `room_status` es el estado OPERATIVO de la habitación, distinto del estado
+/// de una reserva: puede estar DISPONIBLE hoy y tener reservas futuras.
+/// Tiene CHECK en la base: room_status IN
+/// ('DISPONIBLE','OCUPADA','LIMPIEZA','MANTENIMIENTO','FUERA_DE_SERVICIO').
+model room {
+  room_id          Int                @id @default(autoincrement())
+  room_number      String             @unique @db.VarChar(10)
+  room_type_id     Int
+  floor_number     Int?               @db.SmallInt
+  room_status      String             @default("DISPONIBLE") @db.VarChar(20)
+  view_type        String?            @db.VarChar(40)
+  observations     String?            @db.VarChar(255)
+  active           Boolean            @default(true)
+  creation_date    DateTime           @default(now()) @db.Timestamptz(6)
+
+  room_type        room_type          @relation(fields: [room_type_id], references: [room_type_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_room_type")
+  reservation      reservation[]
+  room_hold        room_hold[]
+  room_maintenance room_maintenance[]
+
+  @@index([room_type_id], map: "idx_room_type")
+  @@index([room_status], map: "idx_room_status")
+}
+
+/// Perfil del huésped (RES-01). Se separa de la reserva porque un huésped
+/// vuelve: así se puede consultar su historial y la reserva no repite sus datos.
+/// Tiene CHECK en la base: formato de email y document_type del catálogo.
+model guest {
+  guest_id        Int           @id @default(autoincrement())
+  document_type   String        @default("DNI") @db.VarChar(20)
+  document_number String        @db.VarChar(30)
+  first_name      String        @db.VarChar(100)
+  last_name       String        @db.VarChar(100)
+  email           String?       @db.VarChar(150)
+  phone           String?       @db.VarChar(30)
+  birth_date      DateTime?     @db.Date
+  nationality     String?       @db.VarChar(60)
+  address         String?       @db.VarChar(200)
+  observations    String?       @db.VarChar(255)
+  guest_state     Boolean       @default(true)
+  creation_date   DateTime      @default(now()) @db.Timestamptz(6)
+
+  reservation     reservation[]
+
+  @@unique([document_type, document_number], map: "uq_guest_document")
+  @@index([last_name, first_name], map: "idx_guest_lastname")
+  @@index([document_number], map: "idx_guest_document")
+}
+
+/// Política de cancelación. Cada reserva guarda la que tenía al reservarse:
+/// si el hotel endurece sus condiciones, las reservas anteriores conservan las
+/// que el huésped aceptó.
+model cancellation_policy {
+  policy_id          Int           @id @default(autoincrement())
+  policy_name        String        @unique @db.VarChar(80)
+  description        String        @db.VarChar(255)
+  free_cancel_hours  Int           @default(24) @db.SmallInt
+  penalty_percentage Decimal       @default(0.00) @db.Decimal(5, 2)
+  active             Boolean       @default(true)
+
+  reservation        reservation[]
+}
+
+/// Retención temporal mientras se carga la reserva (RES-01).
+/// Las vencidas se liberan con fn_release_expired_holds(), porque el predicado
+/// del EXCLUDE no puede usar la hora actual.
+model room_hold {
+  hold_id        Int       @id @default(autoincrement())
+  room_id        Int
+  check_in_date  DateTime  @db.Date
+  check_out_date DateTime  @db.Date
+  employees_id   Int
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at     DateTime  @db.Timestamptz(6)
+  released       Boolean   @default(false)
+
+  room           room      @relation(fields: [room_id], references: [room_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hold_room")
+  employees      employees @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hold_employee")
+}
+
+/// Reservas (RES-01, RES-05, RES-09, RES-11).
+/// Estados: PENDIENTE, CONFIRMADA, IN_HOUSE, FINALIZADA, CANCELADA, NO_SHOW.
+///
+/// `price_per_night` se copia al reservar: el precio pactado no cambia porque
+/// después se actualicen las tarifas.
+///
+/// `nights` y `total_amount` son COLUMNAS GENERADAS en la base. Se declaran
+/// opcionales para poder leerlas; enviarlas en un create o update hace que
+/// PostgreSQL rechace la operación.
+///
+/// El solapamiento de reservas lo impide un EXCLUDE en la base, no la
+/// aplicación: dos usuarios simultáneos no pueden sobrevender la habitación.
+model reservation {
+  reservation_id             Int                          @id @default(autoincrement())
+  reservation_code           String                       @unique @db.VarChar(20)
+  guest_id                   Int
+  room_id                    Int
+  check_in_date              DateTime                     @db.Date
+  check_out_date             DateTime                     @db.Date
+  adults                     Int                          @default(1) @db.SmallInt
+  children                   Int                          @default(0) @db.SmallInt
+  price_per_night            Decimal                      @db.Decimal(14, 2)
+  rate_id                    Int?
+  policy_id                  Int?
+  nights                     Int?
+  total_amount               Decimal?                     @db.Decimal(14, 2)
+  reservation_status         String                       @default("CONFIRMADA") @db.VarChar(20)
+  reservation_source         String                       @default("RECEPCION") @db.VarChar(40)
+  observations               String?                      @db.VarChar(255)
+  employees_id               Int
+  creation_date              DateTime                     @default(now()) @db.Timestamptz(6)
+  cancelled_at               DateTime?                    @db.Timestamptz(6)
+  cancellation_reason        String?                      @db.VarChar(255)
+
+  guest                      guest                        @relation(fields: [guest_id], references: [guest_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reservation_guest")
+  room                       room                         @relation(fields: [room_id], references: [room_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reservation_room")
+  room_type_rate             room_type_rate?              @relation(fields: [rate_id], references: [rate_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reservation_rate")
+  cancellation_policy        cancellation_policy?         @relation(fields: [policy_id], references: [policy_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reservation_policy")
+  employees                  employees                    @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reservation_employee")
+  reservation_status_history reservation_status_history[]
+  reservation_change_log     reservation_change_log[]
+  reservation_check_in       reservation_check_in?
+  reservation_check_out      reservation_check_out?
+
+  @@index([guest_id], map: "idx_reservation_guest")
+  @@index([room_id], map: "idx_reservation_room")
+  @@index([reservation_status], map: "idx_reservation_status")
+  @@index([check_in_date, check_out_date], map: "idx_reservation_dates")
+  @@index([employees_id], map: "idx_reservation_employee")
+}
+
+/// Cada cambio de estado de la reserva, con quién y cuándo.
+/// Lo escribe el trigger tr_log_reservation_status.
+model reservation_status_history {
+  reservation_history_id Int         @id @default(autoincrement())
+  reservation_id         Int
+  previous_status        String?     @db.VarChar(20)
+  new_status             String      @db.VarChar(20)
+  changed_at             DateTime    @default(now()) @db.Timestamptz(6)
+  employees_id           Int
+  reason                 String?     @db.VarChar(255)
+
+  reservation            reservation @relation(fields: [reservation_id], references: [reservation_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_res_history_reservation")
+  employees              employees   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_res_history_employee")
+
+  @@index([reservation_id], map: "idx_res_history_reservation")
+}
+
+/// Cambios de fechas, habitación o precio. Van aparte del historial de estados
+/// porque responden otra pregunta: quién modificó la reserva y cuándo.
+/// Lo escribe el trigger tr_log_reservation_changes.
+model reservation_change_log {
+  change_id      Int         @id @default(autoincrement())
+  reservation_id Int
+  changed_field  String      @db.VarChar(40)
+  previous_value String?     @db.VarChar(100)
+  new_value      String?     @db.VarChar(100)
+  changed_at     DateTime    @default(now()) @db.Timestamptz(6)
+  employees_id   Int
+  reason         String?     @db.VarChar(255)
+
+  reservation    reservation @relation(fields: [reservation_id], references: [reservation_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_res_change_reservation")
+  employees      employees   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_res_change_employee")
+
+  @@index([reservation_id], map: "idx_res_change_reservation")
+}
+
+/// Check-in (RES-09). Relación 1 a 1 con la reserva.
+/// Al insertarse, el trigger tr_process_check_in valida el estado y la fecha,
+/// pasa la reserva a IN_HOUSE y la habitación a OCUPADA.
+model reservation_check_in {
+  check_in_id     Int         @id @default(autoincrement())
+  reservation_id  Int         @unique
+  check_in_at     DateTime    @default(now()) @db.Timestamptz(6)
+  actual_adults   Int?        @db.SmallInt
+  actual_children Int?        @db.SmallInt
+  observations    String?     @db.VarChar(255)
+  employees_id    Int
+
+  reservation     reservation @relation(fields: [reservation_id], references: [reservation_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_checkin_reservation")
+  employees       employees   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_checkin_employee")
+}
+
+/// Check-out (RES-11). Relación 1 a 1 con la reserva.
+/// `pending_charges` deja constancia de consumos sin facturar: el criterio
+/// pide advertirlo, no bloquear la salida.
+/// Al insertarse, el trigger tr_process_check_out pasa la reserva a FINALIZADA
+/// y la habitación a LIMPIEZA, no directo a DISPONIBLE.
+model reservation_check_out {
+  check_out_id    Int         @id @default(autoincrement())
+  reservation_id  Int         @unique
+  check_out_at    DateTime    @default(now()) @db.Timestamptz(6)
+  pending_charges Boolean     @default(false)
+  pending_detail  String?     @db.VarChar(255)
+  observations    String?     @db.VarChar(255)
+  employees_id    Int
+
+  reservation     reservation @relation(fields: [reservation_id], references: [reservation_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_checkout_reservation")
+  employees       employees   @relation(fields: [employees_id], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_checkout_employee")
+}
+
+/// Bloqueo por limpieza o mantenimiento (HAB-06).
+/// actual_end_date en NULL significa que el bloqueo sigue abierto; cerrarlo
+/// devuelve la habitación a DISPONIBLE mediante tr_sync_room_maintenance.
+/// Tiene CHECK en la base: maintenance_type IN
+/// ('LIMPIEZA','MANTENIMIENTO','FUERA_DE_SERVICIO').
+model room_maintenance {
+  maintenance_id     Int        @id @default(autoincrement())
+  room_id            Int
+  maintenance_type   String     @default("MANTENIMIENTO") @db.VarChar(20)
+  start_date         DateTime   @db.Date
+  estimated_end_date DateTime   @db.Date
+  actual_end_date    DateTime?  @db.Date
+  reason             String     @db.VarChar(255)
+  closing_notes      String?    @db.VarChar(255)
+  opened_by          Int
+  closed_by          Int?
+  creation_date      DateTime   @default(now()) @db.Timestamptz(6)
+
+  room               room       @relation(fields: [room_id], references: [room_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_maintenance_room")
+  opened_by_employee employees  @relation("maintenance_opened_by", fields: [opened_by], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_maintenance_opened")
+  closed_by_employee employees? @relation("maintenance_closed_by", fields: [closed_by], references: [employees_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_maintenance_closed")
+
+  @@index([room_id], map: "idx_maintenance_room")
 }

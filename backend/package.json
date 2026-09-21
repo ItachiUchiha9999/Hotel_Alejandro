@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "test": "node --test \"tests/**/*.test.js\"",
     "prisma:generate": "prisma generate",
-    "prisma:pull": "prisma db pull",
     "prisma:studio": "prisma studio"
   },
   "license": "ISC",

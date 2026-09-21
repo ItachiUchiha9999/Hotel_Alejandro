@@ -116,6 +116,17 @@ const fecha = (valor: string | null) => {
   });
 };
 
+const fechaHora = (valor: string | null) => {
+  if (!valor) return "—";
+  return new Date(valor).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 const ESTADOS_MAP: Record<number, { label: string; tono: "alerta" | "activo" | "inactivo" }> = {
   0: { label: "BORRADOR", tono: "alerta" },
   1: { label: "CONFIRMADA", tono: "activo" },
@@ -696,9 +707,13 @@ export default function OrdenesPagoPage() {
                   <div className="p-6">
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="rounded-lg border border-carbon/10 p-3">
-                        <p className="text-[10px] uppercase text-carbon/45">Fecha de pago</p>
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          {ordenDetalle.confirmed_date ? "Confirmado el" : "Fecha prevista"}
+                        </p>
                         <p className="mt-1 text-sm font-medium">
-                          {fecha(ordenDetalle.payment_date)}
+                          {ordenDetalle.confirmed_date
+                            ? fechaHora(ordenDetalle.confirmed_date)
+                            : fecha(ordenDetalle.payment_date)}
                         </p>
                       </div>
                       <div className="rounded-lg border border-carbon/10 p-3">
@@ -818,7 +833,7 @@ export default function OrdenesPagoPage() {
             <THead>
               <TH># Orden</TH>
               <TH>Proveedor</TH>
-              <TH>Fecha Pago</TH>
+              <TH>Fecha / Hora Pago</TH>
               <TH>Método</TH>
               <TH className="text-right">Total Pagado</TH>
               <TH>Estado</TH>
@@ -846,7 +861,11 @@ export default function OrdenesPagoPage() {
                       {orden.suppliers.supplier_trade_name ??
                         orden.suppliers.supplier_legal_name}
                     </TD>
-                    <TD>{fecha(orden.payment_date)}</TD>
+                    <TD>
+                      {orden.confirmed_date
+                        ? fechaHora(orden.confirmed_date)
+                        : fecha(orden.payment_date)}
+                    </TD>
                     <TD>{orden.payment_method?.payment_method}</TD>
                     <TD className="text-right font-medium">$ {plata(orden.total_amount)}</TD>
                     <TD>

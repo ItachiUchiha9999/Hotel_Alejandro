@@ -17,6 +17,11 @@ const obtener = asyncHandler(async (req, res) => {
   res.json({ ok: true, data });
 });
 
+const ordenesCompraAprobadas = asyncHandler(async (req, res) => {
+  const data = await service.ordenesCompraAprobadas(req.params.supplierId);
+  res.json({ ok: true, data });
+});
+
 const crear = asyncHandler(async (req, res) => {
   const data = await service.crear({
     ...req.body,
@@ -26,4 +31,4 @@ const crear = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, message: 'Comprobante registrado.', data });
 });
 
-module.exports = { listar, obtener, crear };
+module.exports = { listar, obtener, ordenesCompraAprobadas, crear };

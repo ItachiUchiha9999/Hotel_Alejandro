@@ -4,11 +4,79 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
-  Badge, Button, Card, EmptyState, Field, FieldGrid, InfoBox, Input, Select,
-  Table, THead, TH, TBody, TR, TD,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  FieldGrid,
+  InfoBox,
+  Input,
+  Select,
+  Table,
+  THead,
+  TH,
+  TBody,
+  TR,
+  TD,
 } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { Comprobante, Proveedor, TipoComprobante } from "@/lib/types";
+
+interface ComprobanteDetallado {
+  voucher_id: number;
+  voucher_number: string;
+  voucher_point_of_sale: string | number;
+  issue_date: string;
+  due_date: string | null;
+  total_amount: string | number;
+  paid_amount: string | number;
+  voucher_status: "PENDIENTE" | "PAGADO" | "ANULADO";
+  observations: string | null;
+  creation_date: string;
+  items_facturados?: Array<{
+    detail_id?: number;
+    article_id?: number | null;
+    item_description: string;
+    quantity: string | number;
+    unit_price: string | number;
+    subtotal?: string | number;
+  }> | null;
+  suppliers: {
+    supplier_id: number;
+    supplier_legal_name: string;
+    supplier_trade_name: string | null;
+  };
+  voucher_type: {
+    voucher_type_id: number;
+    voucher_type: string;
+    description: string;
+    sign: number;
+    affects_account: boolean;
+  };
+  employees?: {
+    employees_name: string;
+    employees_lastname: string;
+  } | null;
+  purchase_order?: {
+    purchase_order_id: number;
+    purchase_order_number: string;
+    total_amount: string | number;
+    purchase_order_status: string;
+    purchase_order_detail?: Array<{
+      purchase_detail_id?: number;
+      detail_id?: number;
+      item_description: string;
+      quantity: string | number;
+      unit_price: string | number;
+      subtotal?: string | number;
+      articles?: {
+        article_code: string;
+        article_name: string;
+      } | null;
+    }>;
+  } | null;
+}
 
 const tonoPorEstado = {
   PENDIENTE: "alerta",
@@ -17,62 +85,53 @@ const tonoPorEstado = {
 } as const;
 
 const plata = (valor: string | number) =>
-  Number(valor).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  Number(valor || 0).toLocaleString("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-/**
- * issue_date y due_date son columnas DATE en la base (sin hora): el backend
- * las devuelve como '2026-09-06T00:00:00.000Z', medianoche UTC. Si se
- * formatean con `new Date(valor).toLocaleDateString(...)`, el navegador las
- * convierte a la hora LOCAL antes de mostrarlas — en un huso horario detrás
- * de UTC (como Argentina, UTC-3), esa conversión resta horas y hace caer la
- * fecha mostrada un día antes del real (2026-09-06 se veía como 5/9/2026).
- * Por eso se leen los componentes en UTC (getUTC*) en vez de dejar que
- * toLocaleDateString aplique el huso horario del navegador.
- */
+const POR_PAGINA = 10;
+
 const fecha = (valor: string | null) => {
   if (!valor) return "—";
   const d = new Date(valor);
   return d.toLocaleDateString("es-AR", { timeZone: "UTC" });
 };
 
-/**
- * Listado de comprobantes registrados (PROV-01).
- *
- * PROV-04 — "Consultar y administrar comprobantes de un proveedor" agrega acá
- * los filtros combinables por proveedor, tipo, estado y rango de fechas: se
- * mandan como query params al backend (que ya los soporta), y la búsqueda de
- * texto libre se sigue resolviendo en el cliente sobre lo que devuelve el
- * backend. Los comprobantes ANULADOS (baja lógica) no se ocultan por
- * defecto: aparecen igual que cualquier otro estado, salvo que el filtro
- * Estado los excluya explícitamente.
- *
- * Cada cambio de filtro dispara un nuevo fetch. Como el usuario puede cambiar
- * varios filtros rápido (por ejemplo, tipear o seleccionar fechas seguidas),
- * pueden quedar varias requests en vuelo al mismo tiempo; sin cancelación, una
- * respuesta vieja que tarda más podía llegar después que una más nueva y
- * pisar la tabla con datos que ya no correspondían a los filtros elegidos.
- * Por eso `cargar` usa AbortController: cada corrida del efecto cancela la
- * request anterior, y cualquier respuesta de una request ya cancelada se
- * ignora en vez de aplicarse.
- */
+const fechaHora = (valor: string | null) => {
+  if (!valor) return "—";
+  return new Date(valor).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 export default function ComprobantesPage() {
   const [comprobantes, setComprobantes] = useState<Comprobante[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
+  const [pagina, setPagina] = useState(1);
 
-  // Catálogos para los selects de filtro. Se cargan una sola vez al montar,
-  // no dependen de los filtros aplicados al listado.
+  // Catálogos para los filtros
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [tipos, setTipos] = useState<TipoComprobante[]>([]);
   const [errorCatalogos, setErrorCatalogos] = useState<string | null>(null);
 
-  // Filtros que se resuelven en el backend.
+  // Filtros de backend
   const [proveedorId, setProveedorId] = useState("");
   const [tipoId, setTipoId] = useState("");
   const [estado, setEstado] = useState("");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+
+  // Modal Ver Detalle de Factura
+  const [comprobanteDetalle, setComprobanteDetalle] = useState<ComprobanteDetallado | null>(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const [errorDetalle, setErrorDetalle] = useState<string | null>(null);
 
   const cargarCatalogos = useCallback(async () => {
     setErrorCatalogos(null);
@@ -85,7 +144,9 @@ export default function ComprobantesPage() {
       setTipos(tip);
     } catch (err) {
       setErrorCatalogos(
-        err instanceof ApiError ? err.message : "No se pudieron cargar los filtros de proveedor y tipo.",
+        err instanceof ApiError
+          ? err.message
+          : "No se pudieron cargar los filtros de proveedor y tipo."
       );
     }
   }, []);
@@ -94,10 +155,6 @@ export default function ComprobantesPage() {
     cargarCatalogos();
   }, [cargarCatalogos]);
 
-  // Se vuelve a pedir el listado cada vez que cambia alguno de los filtros de
-  // backend. El filtrado por estos campos ya NO se hace en el cliente.
-  // Acepta un `signal` opcional para poder cancelarse desde el efecto de
-  // abajo cuando los filtros cambian antes de que termine de responder.
   const cargar = useCallback(
     async (signal?: AbortSignal) => {
       setCargando(true);
@@ -113,61 +170,67 @@ export default function ComprobantesPage() {
         const query = params.toString();
         const data = await api.get<Comprobante[]>(
           `/comprobantes${query ? `?${query}` : ""}`,
-          { signal },
+          { signal }
         );
 
-        // Si mientras esperábamos la respuesta ya se disparó una request más
-        // nueva (otro cambio de filtro), esta quedó obsoleta: se descarta sin
-        // tocar el estado, para no pisar lo que trajo la request vigente.
         if (signal?.aborted) return;
-
         setComprobantes(data);
       } catch (err) {
-        // Una cancelación intencional (AbortError) no es un error real: no
-        // hay que mostrar nada ni tocar el estado, la request vigente se
-        // encarga de actualizar la pantalla.
         if (err instanceof DOMException && err.name === "AbortError") return;
-
-        setError(err instanceof ApiError ? err.message : "No se pudieron cargar los comprobantes.");
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "No se pudieron cargar los comprobantes."
+        );
       } finally {
-        // No apagar el loading si esta request ya fue cancelada: dejamos que
-        // la request vigente sea la que decida cuándo termina la carga.
         if (!signal?.aborted) setCargando(false);
       }
     },
-    [proveedorId, tipoId, estado, desde, hasta],
+    [proveedorId, tipoId, estado, desde, hasta]
   );
 
   useEffect(() => {
     const controller = new AbortController();
+    setPagina(1);
     cargar(controller.signal);
     return () => controller.abort();
   }, [cargar]);
 
-  // Búsqueda de texto libre: sigue siendo en el cliente, sobre lo que ya
-  // vino filtrado del backend.
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return comprobantes;
     return comprobantes.filter((c) =>
       `${c.supplier_legal_name} ${c.supplier_trade_name ?? ""} ${c.voucher_type} ${c.voucher_full_number}`
         .toLowerCase()
-        .includes(q),
+        .includes(q)
     );
   }, [comprobantes, busqueda]);
 
-  // El resumen se calcula sobre lo visible (filtros de backend + búsqueda),
-  // no sobre el total sin filtrar.
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda]);
+
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+  const paginaSegura = Math.min(pagina, totalPaginas);
+  const visiblesPagina = useMemo(
+    () =>
+      visibles.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA),
+    [visibles, paginaSegura]
+  );
+  const desdeItem =
+    visibles.length === 0 ? 0 : (paginaSegura - 1) * POR_PAGINA + 1;
+  const hastaItem = Math.min(paginaSegura * POR_PAGINA, visibles.length);
+
   const totalPendiente = useMemo(
     () =>
       visibles
         .filter((c) => c.voucher_status === "PENDIENTE")
         .reduce((acc, c) => acc + Number(c.pending_amount), 0),
-    [visibles],
+    [visibles]
   );
 
   const hayFiltrosActivos = Boolean(
-    proveedorId || tipoId || estado || desde || hasta || busqueda,
+    proveedorId || tipoId || estado || desde || hasta || busqueda
   );
 
   const limpiarFiltros = () => {
@@ -177,9 +240,38 @@ export default function ComprobantesPage() {
     setDesde("");
     setHasta("");
     setBusqueda("");
-    // No hace falta llamar a cargar() a mano: al vaciarse los filtros de
-    // backend, el useEffect de arriba dispara el pedido sin query params.
   };
+
+  const verDetalle = async (voucherId: number) => {
+    setCargandoDetalle(true);
+    setErrorDetalle(null);
+    try {
+      const res = await api.get<any>(`/comprobantes/${voucherId}`);
+      const data = res?.data ?? res;
+      setComprobanteDetalle(data);
+    } catch (err) {
+      setErrorDetalle(
+        err instanceof ApiError
+          ? err.message
+          : "No se pudo obtener el detalle del comprobante."
+      );
+    } finally {
+      setCargandoDetalle(false);
+    }
+  };
+
+  // Lista de renglones a renderizar: toma los ítems facturados específicos si existen;
+  // si no, toma los de la orden vinculada como respaldo
+  const renglonesMostrados = useMemo(() => {
+    if (!comprobanteDetalle) return [];
+    if (
+      comprobanteDetalle.items_facturados &&
+      comprobanteDetalle.items_facturados.length > 0
+    ) {
+      return comprobanteDetalle.items_facturados;
+    }
+    return comprobanteDetalle.purchase_order?.purchase_order_detail || [];
+  }, [comprobanteDetalle]);
 
   return (
     <>
@@ -199,7 +291,11 @@ export default function ComprobantesPage() {
           {errorCatalogos && (
             <InfoBox tipo="error">
               {errorCatalogos}{" "}
-              <button type="button" onClick={cargarCatalogos} className="underline underline-offset-2">
+              <button
+                type="button"
+                onClick={cargarCatalogos}
+                className="underline underline-offset-2"
+              >
                 Reintentar
               </button>
             </InfoBox>
@@ -223,7 +319,11 @@ export default function ComprobantesPage() {
             </Field>
 
             <Field label="Tipo de comprobante" htmlFor="filtro-tipo">
-              <Select id="filtro-tipo" value={tipoId} onChange={(e) => setTipoId(e.target.value)}>
+              <Select
+                id="filtro-tipo"
+                value={tipoId}
+                onChange={(e) => setTipoId(e.target.value)}
+              >
                 <option value="">Todos</option>
                 {tipos.map((t) => (
                   <option key={t.voucher_type_id} value={t.voucher_type_id}>
@@ -235,7 +335,11 @@ export default function ComprobantesPage() {
             </Field>
 
             <Field label="Estado" htmlFor="filtro-estado">
-              <Select id="filtro-estado" value={estado} onChange={(e) => setEstado(e.target.value)}>
+              <Select
+                id="filtro-estado"
+                value={estado}
+                onChange={(e) => setEstado(e.target.value)}
+              >
                 <option value="">Todos</option>
                 <option value="PENDIENTE">Pendiente</option>
                 <option value="PAGADO">Pagado</option>
@@ -285,7 +389,10 @@ export default function ComprobantesPage() {
 
             {totalPendiente > 0 && (
               <span className="ml-auto text-xs text-carbon/60">
-                Pendiente de pago: <strong className="tabular-nums">$ {plata(totalPendiente)}</strong>
+                Pendiente de pago:{" "}
+                <strong className="tabular-nums">
+                  $ {plata(totalPendiente)}
+                </strong>
               </span>
             )}
           </div>
@@ -294,14 +401,20 @@ export default function ComprobantesPage() {
         {error && (
           <InfoBox tipo="error">
             {error}{" "}
-            <button type="button" onClick={() => cargar()} className="underline underline-offset-2">
+            <button
+              type="button"
+              onClick={() => cargar()}
+              className="underline underline-offset-2"
+            >
               Reintentar
             </button>
           </InfoBox>
         )}
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando comprobantes…</p>
+          <p className="py-10 text-center text-sm text-carbon/50">
+            Cargando comprobantes…
+          </p>
         ) : visibles.length === 0 ? (
           <EmptyState
             titulo="No hay comprobantes registrados"
@@ -321,50 +434,354 @@ export default function ComprobantesPage() {
             }
           />
         ) : (
-          <Table>
-            <THead>
-              <TH>Comprobante</TH>
-              <TH>Proveedor</TH>
-              <TH>Emisión</TH>
-              <TH>Vencimiento</TH>
-              <TH className="text-right">Total</TH>
-              <TH className="text-right">Pagado</TH>
-              <TH className="text-right">Pendiente</TH>
-              <TH>Estado</TH>
-            </THead>
-            <TBody>
-              {visibles.map((c) => (
-                <TR key={c.voucher_id}>
-                  <TD>
-                    <span className="font-medium">{c.voucher_type.replaceAll("_", " ")}</span>
-                    <span className="block font-mono text-xs text-carbon/50">
-                      {c.voucher_full_number}
-                    </span>
-                  </TD>
-                  <TD className="text-xs">
-                    {c.supplier_trade_name ?? c.supplier_legal_name}
-                  </TD>
-                  <TD className="text-xs">{fecha(c.issue_date)}</TD>
-                  <TD className="text-xs">
-                    {fecha(c.due_date)}
-                    {c.is_overdue && (
-                      <span className="ml-1 text-[10px] font-semibold uppercase text-danger">
-                        vencido
+          <>
+            <Table>
+              <THead>
+                <TH>Comprobante</TH>
+                <TH>Proveedor</TH>
+                <TH>Emisión</TH>
+                <TH>Vencimiento</TH>
+                <TH className="text-right">Total</TH>
+                <TH className="text-right">Pagado</TH>
+                <TH className="text-right">Pendiente</TH>
+                <TH>Estado</TH>
+                <TH className="text-right">Acciones</TH>
+              </THead>
+              <TBody>
+                {visiblesPagina.map((c) => (
+                  <TR key={c.voucher_id}>
+                    <TD>
+                      <button
+                        type="button"
+                        onClick={() => verDetalle(c.voucher_id)}
+                        className="text-left font-medium underline decoration-carbon/25 underline-offset-4 hover:decoration-carbon"
+                      >
+                        {c.voucher_type.replaceAll("_", " ")}
+                      </button>
+                      <span className="block font-mono text-xs text-carbon/50">
+                        {c.voucher_full_number}
                       </span>
-                    )}
-                  </TD>
-                  <TD className="text-right tabular-nums">$ {plata(c.total_amount)}</TD>
-                  <TD className="text-right tabular-nums">$ {plata(c.paid_amount)}</TD>
-                  <TD className="text-right tabular-nums">$ {plata(c.pending_amount)}</TD>
-                  <TD>
-                    <Badge tono={tonoPorEstado[c.voucher_status]}>{c.voucher_status}</Badge>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+                    </TD>
+                    <TD className="text-xs">
+                      {c.supplier_trade_name ?? c.supplier_legal_name}
+                    </TD>
+                    <TD className="text-xs">{fecha(c.issue_date)}</TD>
+                    <TD className="text-xs">
+                      {fecha(c.due_date)}
+                      {c.is_overdue && (
+                        <span className="ml-1 text-[10px] font-semibold uppercase text-danger">
+                          vencido
+                        </span>
+                      )}
+                    </TD>
+                    <TD className="text-right tabular-nums">
+                      $ {plata(c.total_amount)}
+                    </TD>
+                    <TD className="text-right tabular-nums">
+                      $ {plata(c.paid_amount)}
+                    </TD>
+                    <TD className="text-right tabular-nums font-medium">
+                      $ {plata(c.pending_amount)}
+                    </TD>
+                    <TD>
+                      <Badge tono={tonoPorEstado[c.voucher_status]}>
+                        {c.voucher_status}
+                      </Badge>
+                    </TD>
+                    <TD className="text-right">
+                      <button
+                        type="button"
+                        onClick={() => verDetalle(c.voucher_id)}
+                        className="text-xs font-medium underline decoration-carbon/30 underline-offset-4 hover:decoration-carbon"
+                      >
+                        Ver detalle
+                      </button>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+
+            {totalPaginas > 1 && (
+              <div className="mt-4 flex flex-col items-center justify-between gap-3 border-t border-line pt-4 sm:flex-row">
+                <p className="text-xs text-carbon/50">
+                  Mostrando {desdeItem}–{hastaItem} de {visibles.length}{" "}
+                  comprobantes
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                    disabled={paginaSegura === 1}
+                    className="rounded-lg border border-line px-3 py-1.5 text-sm text-carbon transition disabled:cursor-not-allowed disabled:opacity-40 hover:enabled:bg-mist/60"
+                  >
+                    Anterior
+                  </button>
+                  <span className="px-2 text-sm text-carbon/70">
+                    Página {paginaSegura} de {totalPaginas}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPagina((p) => Math.min(totalPaginas, p + 1))
+                    }
+                    disabled={paginaSegura === totalPaginas}
+                    className="rounded-lg border border-line px-3 py-1.5 text-sm text-carbon transition disabled:cursor-not-allowed disabled:opacity-40 hover:enabled:bg-mist/60"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </Card>
+
+      {/* ========================================================
+          MODAL FICHA / DETALLE DE COMPROBANTE
+      ======================================================== */}
+      {(comprobanteDetalle || cargandoDetalle || errorDetalle) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setComprobanteDetalle(null);
+              setErrorDetalle(null);
+            }
+          }}
+        >
+          <div className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-carbon/10 bg-white shadow-xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between border-b border-carbon/10 bg-white px-6 py-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-carbon/45">
+                  Ficha de Comprobante #{comprobanteDetalle?.voucher_id ?? "—"}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold">
+                  {comprobanteDetalle
+                    ? `${comprobanteDetalle.voucher_type.voucher_type.replaceAll("_", " ")} ${String(
+                        comprobanteDetalle.voucher_point_of_sale
+                      ).padStart(4, "0")}-${String(
+                        comprobanteDetalle.voucher_number
+                      ).padStart(8, "0")}`
+                    : "Cargando comprobante..."}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setComprobanteDetalle(null);
+                  setErrorDetalle(null);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-xl text-carbon/40 hover:bg-carbon/5"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6">
+              {cargandoDetalle ? (
+                <p className="py-12 text-center text-sm text-carbon/50">
+                  Cargando información del comprobante...
+                </p>
+              ) : errorDetalle ? (
+                <InfoBox tipo="error">{errorDetalle}</InfoBox>
+              ) : (
+                comprobanteDetalle && (
+                  <div className="space-y-6">
+                    {/* ENCABEZADO Y ESTADO */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-carbon/10 bg-carbon/[0.025] p-3">
+                      <div>
+                        <p className="text-[10px] font-medium uppercase text-carbon/45">
+                          Proveedor
+                        </p>
+                        <p className="text-sm font-semibold">
+                          {comprobanteDetalle.suppliers.supplier_trade_name ??
+                            comprobanteDetalle.suppliers.supplier_legal_name}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-medium uppercase text-carbon/45">
+                          Estado comprobante
+                        </p>
+                        <div className="mt-0.5">
+                          <Badge
+                            tono={
+                              tonoPorEstado[comprobanteDetalle.voucher_status]
+                            }
+                          >
+                            {comprobanteDetalle.voucher_status}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* DATOS GENERALES */}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-lg border border-carbon/10 p-3">
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Fecha de Emisión
+                        </p>
+                        <p className="mt-1 text-sm font-medium">
+                          {fecha(comprobanteDetalle.issue_date)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-carbon/10 p-3">
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Fecha de Vencimiento
+                        </p>
+                        <p className="mt-1 text-sm font-medium">
+                          {fecha(comprobanteDetalle.due_date)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-carbon/10 p-3">
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Orden de Compra Vinculada
+                        </p>
+                        <p className="mt-1 font-mono text-sm font-semibold text-carbon">
+                          {comprobanteDetalle.purchase_order
+                            ? comprobanteDetalle.purchase_order
+                                .purchase_order_number
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* IMPORTES Y SALDOS */}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-lg border border-carbon/10 p-3">
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Total Comprobante
+                        </p>
+                        <p className="mt-1 text-lg font-bold text-carbon">
+                          $ {plata(comprobanteDetalle.total_amount)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-carbon/10 p-3">
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Importe Pagado
+                        </p>
+                        <p className="mt-1 text-lg font-bold text-emerald-700">
+                          $ {plata(comprobanteDetalle.paid_amount)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-carbon/10 p-3">
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Saldo Pendiente
+                        </p>
+                        <p className="mt-1 text-lg font-bold text-amber-700">
+                          ${" "}
+                          {plata(
+                            Math.max(
+                              0,
+                              Number(comprobanteDetalle.total_amount) -
+                                Number(comprobanteDetalle.paid_amount)
+                            )
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* ARTÍCULOS EFECTIVAMENTE FACTURADOS */}
+                    {renglonesMostrados.length > 0 && (
+                      <div>
+                        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-carbon/60">
+                          {comprobanteDetalle.items_facturados
+                            ? "Artículos facturados en este comprobante"
+                            : `Artículos de la Orden ${
+                                comprobanteDetalle.purchase_order
+                                  ?.purchase_order_number ?? ""
+                              }`}
+                        </h3>
+                        <div className="overflow-x-auto rounded-lg border border-carbon/10">
+                          <Table>
+                            <THead>
+                              <TH>Descripción</TH>
+                              <TH className="text-right">Cantidad</TH>
+                              <TH className="text-right">Precio Unitario</TH>
+                              <TH className="text-right">Subtotal</TH>
+                            </THead>
+                            <TBody>
+                              {renglonesMostrados.map((item, idx) => {
+                                const sub =
+                                  item.subtotal !== undefined
+                                    ? Number(item.subtotal)
+                                    : Number(item.quantity || 0) *
+                                      Number(item.unit_price || 0);
+
+                                return (
+                                  <TR
+                                    key={
+                                      item.purchase_detail_id ||
+                                      item.detail_id ||
+                                      idx
+                                    }
+                                  >
+                                    <TD className="text-xs font-medium">
+                                      {item.item_description}
+                                    </TD>
+                                    <TD className="text-right font-mono text-xs">
+                                      {item.quantity}
+                                    </TD>
+                                    <TD className="text-right font-mono text-xs tabular-nums">
+                                      $ {plata(item.unit_price)}
+                                    </TD>
+                                    <TD className="text-right font-mono text-xs font-semibold tabular-nums">
+                                      $ {plata(sub)}
+                                    </TD>
+                                  </TR>
+                                );
+                              })}
+                            </TBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AUDITORÍA Y OBSERVACIONES */}
+                    <div className="space-y-3 rounded-lg border border-carbon/10 bg-carbon/[0.015] p-4">
+                      <div>
+                        <p className="text-[10px] uppercase text-carbon/45">
+                          Observaciones
+                        </p>
+                        <p className="mt-1 text-sm text-carbon/80">
+                          {comprobanteDetalle.observations ||
+                            "Sin observaciones registradas."}
+                        </p>
+                      </div>
+                      <div className="grid gap-3 border-t border-carbon/10 pt-2 text-xs text-carbon/60 sm:grid-cols-2">
+                        <div>
+                          <span className="block text-[10px] uppercase text-carbon/40">
+                            Registrado por
+                          </span>
+                          {comprobanteDetalle.employees
+                            ? `${comprobanteDetalle.employees.employees_name} ${comprobanteDetalle.employees.employees_lastname}`
+                            : "Sistema"}
+                        </div>
+                        <div>
+                          <span className="block text-[10px] uppercase text-carbon/40">
+                            Fecha y Hora de Carga
+                          </span>
+                          {fechaHora(comprobanteDetalle.creation_date)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        type="button"
+                        variante="secundario"
+                        onClick={() => setComprobanteDetalle(null)}
+                      >
+                        Cerrar ficha
+                      </Button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

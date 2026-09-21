@@ -86,6 +86,17 @@ const ESTADO_COMPROBANTE_TONO: Record<
   ANULADO: "inactivo",
 };
 
+/**
+ * Marca cada movimiento indicando si debe mostrar la fecha.
+ * Solo la muestra el primero de cada día: así la columna queda limpia
+ * y se percibe el agrupamiento sin ocupar una fila entera por fecha.
+ */
+const conFechaVisible = (movimientos: MovimientoCC[]) =>
+  movimientos.map((m, i) => ({
+    ...m,
+    mostrarFecha: i === 0 || m.movement_date !== movimientos[i - 1].movement_date,
+  }));
+
 /* ============================================================
    COMPONENTE PRINCIPAL
    ============================================================ */
@@ -101,6 +112,8 @@ export default function CuentaCorrientePage() {
   const [cuenta, setCuenta] = useState<CuentaCorriente | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pagina, setPagina] = useState(1);
+  const POR_PAGINA = 10;
 
   useEffect(() => {
     (async () => {
@@ -149,6 +162,7 @@ export default function CuentaCorrientePage() {
   );
 
   useEffect(() => {
+    setPagina(1);
     cargarCuenta(proveedorId);
   }, [proveedorId, cargarCuenta]);
 
@@ -157,6 +171,14 @@ export default function CuentaCorrientePage() {
     : null;
 
   const saldoActual = cuenta ? Number(cuenta.saldo_actual) : 0;
+
+  const totalMovimientos = cuenta?.movimientos.length ?? 0;
+  const totalPaginas = Math.max(1, Math.ceil(totalMovimientos / POR_PAGINA));
+  const movimientosPagina = cuenta
+    ? cuenta.movimientos.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
+    : [];
+  const desde = totalMovimientos === 0 ? 0 : (pagina - 1) * POR_PAGINA + 1;
+  const hasta = Math.min(pagina * POR_PAGINA, totalMovimientos);
 
   return (
     <>
@@ -283,19 +305,17 @@ export default function CuentaCorrientePage() {
                   descripcion="Este proveedor todavía no tiene comprobantes ni pagos registrados en el sistema."
                 />
               ) : (
-                <Table className="min-w-[72rem]">
+                <Table>
                   <THead>
                     <TH className="whitespace-nowrap">Fecha</TH>
                     <TH>Movimiento</TH>
-                    <TH className="whitespace-nowrap">Forma de pago</TH>
-                    <TH className="whitespace-nowrap">Referencia</TH>
-                    <TH className="text-right whitespace-nowrap">Debe</TH>
-                    <TH className="text-right whitespace-nowrap">Haber</TH>
+                    <TH className="whitespace-nowrap">Pago</TH>
+                    <TH className="text-right whitespace-nowrap">Importe</TH>
                     <TH className="text-right whitespace-nowrap">Saldo</TH>
                     <TH className="whitespace-nowrap text-center">Estado</TH>
                   </THead>
                   <TBody>
-                    {cuenta.movimientos.map((m) => {
+                    {conFechaVisible(movimientosPagina).map((m) => {
                       const estadoLabel = m.voucher
                         ? m.voucher.voucher_status
                         : m.payment
@@ -305,28 +325,57 @@ export default function CuentaCorrientePage() {
                         ? ESTADO_COMPROBANTE_TONO[m.voucher.voucher_status]
                         : "activo";
 
+                      const esDebito = Number(m.debit) > 0;
+                      const monto = esDebito ? Number(m.debit) : Number(m.credit);
+
                       return (
                         <TR key={m.account_movement_id}>
-                          <TD className="whitespace-nowrap">{fecha(m.movement_date)}</TD>
-                          <TD className="min-w-[200px]">
-                            {m.concept}
-                            {m.voucher?.is_overdue && (
-                              <span className="ml-2 inline-block">
+                          <TD className="whitespace-nowrap align-top text-sm tabular-nums text-carbon/60">
+                            {m.mostrarFecha ? fecha(m.movement_date) : ""}
+                          </TD>
+
+                          <TD className="min-w-50">
+                            <div className="flex items-center gap-2">
+                              <span
+                                aria-hidden
+                                className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                                  esDebito ? "bg-red-500" : "bg-emerald-500"
+                                }`}
+                              />
+                              <span>{m.concept}</span>
+                              {m.voucher?.is_overdue && (
                                 <Badge tono="alerta">Vencido</Badge>
-                              </span>
+                              )}
+                            </div>
+                          </TD>
+
+                          <TD className="whitespace-nowrap text-sm text-carbon/70">
+                            {m.payment ? (
+                              <div className="leading-tight">
+                                <div>{m.payment.payment_method}</div>
+                                {m.payment.payment_reference && (
+                                  <div className="text-xs text-carbon/50">
+                                    {m.payment.payment_reference}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              "—"
                             )}
                           </TD>
-                          <TD className="whitespace-nowrap">{m.payment?.payment_method ?? "—"}</TD>
-                          <TD className="whitespace-nowrap">{m.payment?.payment_reference || "—"}</TD>
-                          <TD className="whitespace-nowrap text-right tabular-nums">
-                            {Number(m.debit) ? `$ ${plata(m.debit)}` : "—"}
+
+                          <TD
+                            className={`whitespace-nowrap text-right tabular-nums font-medium ${
+                              esDebito ? "text-red-600" : "text-emerald-600"
+                            }`}
+                          >
+                            {esDebito ? "+" : "−"} $ {plata(monto)}
                           </TD>
-                          <TD className="whitespace-nowrap text-right tabular-nums">
-                            {Number(m.credit) ? `$ ${plata(m.credit)}` : "—"}
-                          </TD>
-                          <TD className="whitespace-nowrap text-right font-medium tabular-nums">
+
+                          <TD className="whitespace-nowrap text-right font-semibold tabular-nums text-carbon">
                             $ {plata(m.balance)}
                           </TD>
+
                           <TD className="whitespace-nowrap text-center">
                             <Badge tono={estadoTono}>{estadoLabel}</Badge>
                           </TD>
@@ -335,6 +384,35 @@ export default function CuentaCorrientePage() {
                     })}
                   </TBody>
                 </Table>
+              )}
+
+              {!cargando && cuenta && totalMovimientos > 0 && totalPaginas > 1 && (
+                <div className="mt-4 flex flex-col items-center justify-between gap-3 border-t border-line pt-4 sm:flex-row">
+                  <p className="text-xs text-carbon/50">
+                    Mostrando {desde}–{hasta} de {totalMovimientos} movimientos
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                      disabled={pagina === 1}
+                      className="rounded-lg border border-line px-3 py-1.5 text-sm text-carbon transition disabled:cursor-not-allowed disabled:opacity-40 hover:enabled:bg-mist/60"
+                    >
+                      Anterior
+                    </button>
+                    <span className="px-2 text-sm text-carbon/70">
+                      Página {pagina} de {totalPaginas}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                      disabled={pagina === totalPaginas}
+                      className="rounded-lg border border-line px-3 py-1.5 text-sm text-carbon transition disabled:cursor-not-allowed disabled:opacity-40 hover:enabled:bg-mist/60"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
               )}
             </Card>
           </div>

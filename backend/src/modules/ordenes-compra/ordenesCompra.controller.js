@@ -1,23 +1,43 @@
 const asyncHandler = require('../../utils/asyncHandler');
-
-const service = require('./ordenesCompra.service');
+const ordenesCompraService = require('./ordenesCompra.service');
 
 const listar = asyncHandler(async (req, res) => {
-  const data = await service.listar({
-    supplierId: req.query.supplier_id,
-    estado: req.query.estado,
-    desde: req.query.desde,
-    hasta: req.query.hasta,
-  });
+  const resultado =
+    await ordenesCompraService.listar({
+      supplierId:
+        req.query.supplierId ??
+        req.query.supplier_id,
+
+      estado:
+        req.query.estado ??
+        req.query.status,
+
+      desde:
+        req.query.desde,
+
+      hasta:
+        req.query.hasta,
+
+      page:
+        req.query.page,
+
+      limit:
+        req.query.limit,
+    });
 
   res.json({
     ok: true,
-    data,
+    data: resultado.data,
+    pagination:
+      resultado.pagination,
   });
 });
 
 const obtener = asyncHandler(async (req, res) => {
-  const data = await service.obtener(req.params.id);
+  const data =
+    await ordenesCompraService.obtener(
+      req.params.id
+    );
 
   res.json({
     ok: true,
@@ -26,43 +46,55 @@ const obtener = asyncHandler(async (req, res) => {
 });
 
 const crear = asyncHandler(async (req, res) => {
-  const data = await service.crear({
-    ...req.body,
-
-    // Más adelante, cuando tengan login real,
-    // esto puede salir de req.user.employees_id.
-    employees_id:
-      req.body.employees_id ?? null,
-  });
+  const data =
+    await ordenesCompraService.crear(
+      req.body
+    );
 
   res.status(201).json({
     ok: true,
-    message: 'Orden de compra registrada.',
+    message:
+      'Orden de compra creada correctamente.',
     data,
   });
 });
 
-const cambiarEstado = asyncHandler(async (req, res) => {
-  const data = await service.cambiarEstado(
-    req.params.id,
-    {
-      estado: req.body.estado,
-      motivo: req.body.motivo,
-      employees_id:
-        req.body.employees_id ?? null,
-    }
-  );
+const editar = asyncHandler(async (req, res) => {
+  const data =
+    await ordenesCompraService.editar(
+      req.params.id,
+      req.body
+    );
 
   res.json({
     ok: true,
-    message: 'Estado de la orden actualizado.',
+    message:
+      'Orden de compra actualizada correctamente.',
     data,
   });
 });
+
+const cambiarEstado = asyncHandler(
+  async (req, res) => {
+    const data =
+      await ordenesCompraService.cambiarEstado(
+        req.params.id,
+        req.body
+      );
+
+    res.json({
+      ok: true,
+      message:
+        'Estado de la orden actualizado correctamente.',
+      data,
+    });
+  }
+);
 
 module.exports = {
   listar,
   obtener,
   crear,
+  editar,
   cambiarEstado,
 };

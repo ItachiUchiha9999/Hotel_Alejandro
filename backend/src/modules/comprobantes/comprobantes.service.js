@@ -8,15 +8,13 @@ const { toId, toPositive, toText } = require('../../utils/parse');
  * Comprobantes de proveedores — PROV-01 (registrar la recepción).
  *
  * Criterios de aceptación cubiertos:
- *   - permite seleccionar proveedor y tipo de comprobante
- *   - registra número, fecha, importe total y estado
- *   - no permite duplicar un comprobante para el mismo proveedor
- *   - queda como pendiente de pago al ingresar
- *
- * PROV-04 — "Consultar y administrar comprobantes de un proveedor" agrega a
- * `listar` los filtros combinables por tipo, estado y rango de fechas (ver
- * abajo). El detalle con movimientos de cuenta relacionados queda para
- * PROV-05/06.
+ *   - Permite seleccionar proveedor y tipo de comprobante.
+ *   - Vincula órdenes de compra APROBADAS del proveedor.
+ *   - Registra número, fecha, importe total y estado.
+ *   - Soporta facturación parcial: almacena el detalle exacto de ítems facturados
+ *     (cantidades y precios editados) dentro de la cabecera.
+ *   - No permite duplicar un comprobante para el mismo proveedor.
+ *   - Queda como pendiente de pago al ingresar.
  */
 
 /** Fecha en formato YYYY-MM-DD, o null si no es válida. */
@@ -30,7 +28,7 @@ const toDate = (valor) => {
 /** Estados válidos de comprobante (coincide con el CHECK de la base). */
 const ESTADOS_VALIDOS = ['PENDIENTE', 'PAGADO', 'ANULADO'];
 
-/** Estado de comprobante en mayúsculas si es válido, o null. No filtra si viene vacío. */
+/** Estado de comprobante en mayúsculas si es válido, o null. */
 const toEstado = (valor) => {
   const texto = toText(valor);
   if (!texto) return null;
@@ -41,30 +39,55 @@ const toEstado = (valor) => {
   return estado;
 };
 
-/**
- * Los datos de lectura salen de la vista v_supplier_voucher_balance, que ya
- * calcula el saldo pendiente y marca los vencidos. Prisma no mapea vistas, así
- * que se consulta con SQL crudo.
- *
- * Filtros combinables, todos opcionales (AND entre los que estén presentes):
- *   - supplierId:     v_supplier_voucher_balance.supplier_id
- *   - voucherTypeId:  id del tipo de comprobante (voucher_type.voucher_type_id)
- *   - estado:         voucher_status ('PENDIENTE' | 'PAGADO' | 'ANULADO')
- *   - desde / hasta:  rango sobre issue_date, formato 'YYYY-MM-DD'
- *
- * Nota sobre voucherTypeId: la vista expone `voucher_type` como el NOMBRE del
- * tipo (texto), no su ID — no tiene columna voucher_type_id (ver columnas de
- * la vista en la definición de la tarea). Por eso, cuando se filtra por
- * voucherTypeId, se une con la tabla voucher_type por el nombre (que es
- * UNIQUE) para poder comparar por ID en vez de por texto. Si en algún momento
- * se agrega voucher_type_id directamente a la vista, este JOIN deja de ser
- * necesario y se puede filtrar sobre v.voucher_type_id sin tocar voucher_type.
- * Avisen si prefieren resolverlo agregando la columna a la vista en su lugar.
- *
- * Los comprobantes ANULADOS (baja lógica) se siguen listando igual que
- * cualquier otro estado: no hay ningún filtro implícito que los oculte, salvo
- * que se pida explícitamente `estado` distinto de ANULADO.
- */
+// ---------------------------------------------------------------------------
+// Helpers de serialización de observaciones e ítems
+// ---------------------------------------------------------------------------
+
+const PREFIJO_ITEMS = '__ITEMS_FACTURADOS__:';
+
+const empaquetarObservaciones = (textoObservaciones, items) => {
+  const base = toText(textoObservaciones) || '';
+  if (!Array.isArray(items) || items.length === 0) {
+    return base || null;
+  }
+
+  const itemsPayload = items.map((it) => ({
+    detail_id: toId(it.detail_id ?? it.purchase_detail_id),
+    article_id: toId(it.article_id) || null,
+    item_description: String(it.item_description ?? it.descripcion ?? ''),
+    quantity: Number(it.quantity ?? it.cantidadFacturada ?? 0),
+    unit_price: Number(it.unit_price ?? it.precioUnitario ?? 0),
+    subtotal:
+      Number(it.quantity ?? it.cantidadFacturada ?? 0) *
+      Number(it.unit_price ?? it.precioUnitario ?? 0),
+  }));
+
+  const json = JSON.stringify(itemsPayload);
+  return base ? `${base}\n${PREFIJO_ITEMS}${json}` : `${PREFIJO_ITEMS}${json}`;
+};
+
+const desempaquetarObservaciones = (textoCrudo) => {
+  if (!textoCrudo || !textoCrudo.includes(PREFIJO_ITEMS)) {
+    return { observaciones: textoCrudo || null, itemsFacturados: null };
+  }
+
+  const partes = textoCrudo.split(PREFIJO_ITEMS);
+  const observaciones = partes[0].trim() || null;
+  let itemsFacturados = null;
+
+  try {
+    itemsFacturados = JSON.parse(partes[1].trim());
+  } catch {
+    itemsFacturados = null;
+  }
+
+  return { observaciones, itemsFacturados };
+};
+
+// ---------------------------------------------------------------------------
+// Consultas
+// ---------------------------------------------------------------------------
+
 const listar = async (filtros = {}) => {
   const supplierId = toId(filtros.supplierId);
   const voucherTypeId = toId(filtros.voucherTypeId);
@@ -82,8 +105,6 @@ const listar = async (filtros = {}) => {
   if (desde) condiciones.push(Prisma.sql`v.issue_date >= ${desde}`);
   if (hasta) condiciones.push(Prisma.sql`v.issue_date <= ${hasta}`);
 
-  // El JOIN con voucher_type solo se agrega cuando hace falta filtrar por ID
-  // de tipo: así, sin ese filtro, la consulta queda idéntica a la anterior.
   let origen = Prisma.sql`v_supplier_voucher_balance v`;
   if (voucherTypeId) {
     origen = Prisma.sql`v_supplier_voucher_balance v
@@ -109,35 +130,77 @@ const obtener = async (id) => {
   const comprobante = await prisma.supplier_voucher.findUnique({
     where: { voucher_id: voucherId },
     include: {
-      suppliers: { select: { supplier_id: true, supplier_legal_name: true, supplier_trade_name: true } },
+      suppliers: {
+        select: {
+          supplier_id: true,
+          supplier_legal_name: true,
+          supplier_trade_name: true,
+        },
+      },
       voucher_type: true,
-      employees: { select: { employees_name: true, employees_lastname: true } },
+      employees: {
+        select: {
+          employees_name: true,
+          employees_lastname: true,
+        },
+      },
+      purchase_order: {
+        include: {
+          purchase_order_detail: true,
+        },
+      },
     },
   });
 
   if (!comprobante) throw noEncontrado('El comprobante no existe.');
-  return comprobante;
+
+  // Desempaquetar observaciones limpias e ítems facturados
+  const { observaciones, itemsFacturados } = desempaquetarObservaciones(comprobante.observations);
+
+  // Si se guardaron ítems específicos para esta factura, se usan esos;
+  // de lo contrario, se mantiene el detalle completo de la OC como fallback.
+  const purchaseOrderData = comprobante.purchase_order
+    ? {
+        ...comprobante.purchase_order,
+        purchase_order_detail:
+          itemsFacturados && itemsFacturados.length > 0
+            ? itemsFacturados
+            : comprobante.purchase_order.purchase_order_detail,
+      }
+    : null;
+
+  return {
+    ...comprobante,
+    observations: observaciones,
+    items_facturados: itemsFacturados,
+    purchase_order: purchaseOrderData,
+  };
 };
 
 /**
- * Registra un comprobante recibido.
- *
- * Payload:
- * {
- *   supplier_id:           number,        // obligatorio
- *   voucher_type_id:       number,        // obligatorio
- *   voucher_point_of_sale: string,        // opcional, por defecto '0001'
- *   voucher_number:        string,        // obligatorio
- *   issue_date:            'YYYY-MM-DD',  // obligatorio
- *   due_date:              'YYYY-MM-DD',  // opcional
- *   total_amount:          number,        // obligatorio, > 0
- *   observations:          string | null,
- *   employees_id:          number | null  // lo inyecta el controller
- * }
- *
- * El estado NO se recibe del cliente: lo calcula el trigger de la base a partir
- * de los importes, así que un comprobante nuevo siempre nace PENDIENTE.
+ * Consulta órdenes de compra en estado APROBADA de un proveedor.
+ * Incluye el detalle de renglones para precargar y editar en el front.
  */
+const ordenesCompraAprobadas = async (supplierId) => {
+  const sid = toId(supplierId);
+  if (!sid) throw invalido('El identificador del proveedor no es válido.');
+
+  return prisma.purchase_order.findMany({
+    where: {
+      supplier_id: sid,
+      purchase_order_status: 'APROBADA',
+    },
+    include: {
+      purchase_order_detail: true,
+    },
+    orderBy: { issue_date: 'desc' },
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Alta de comprobante
+// ---------------------------------------------------------------------------
+
 const crear = async (payload = {}) => {
   // ---- 1. Formato ----
   const supplierId = toId(payload.supplier_id ?? payload.proveedorId);
@@ -163,6 +226,11 @@ const crear = async (payload = {}) => {
   if (!importe) throw invalido('El importe total tiene que ser mayor a cero.');
 
   const employeeId = toId(payload.employees_id) || env.DEFAULT_EMPLOYEE_ID;
+  const purchaseOrderId = toId(
+    payload.purchase_order_id ?? payload.purchaseOrderId ?? payload.ordenCompraId
+  );
+
+  const items = payload.items ?? payload.itemsFactura ?? [];
 
   // ---- 2. Validación contra la base ----
   const proveedor = await prisma.suppliers.findUnique({ where: { supplier_id: supplierId } });
@@ -178,9 +246,25 @@ const crear = async (payload = {}) => {
   const empleado = await prisma.employees.findUnique({ where: { employees_id: employeeId } });
   if (!empleado) throw invalido('No se pudo identificar al empleado que registra el comprobante.');
 
+  if (purchaseOrderId) {
+    const ordenCompra = await prisma.purchase_order.findUnique({
+      where: { purchase_order_id: purchaseOrderId },
+    });
+
+    if (!ordenCompra) {
+      throw noEncontrado('La orden de compra vinculada no existe.');
+    }
+    if (ordenCompra.supplier_id !== supplierId) {
+      throw conflicto('La orden de compra seleccionada no corresponde al proveedor indicado.');
+    }
+    if (ordenCompra.purchase_order_status !== 'APROBADA') {
+      throw conflicto(
+        `Solo se pueden facturar órdenes en estado APROBADA (estado actual: ${ordenCompra.purchase_order_status}).`
+      );
+    }
+  }
+
   // ---- 3. Duplicados ----
-  // La base ya tiene el UNIQUE (proveedor, tipo, punto de venta, número), pero
-  // se chequea antes para devolver un mensaje entendible en lugar de un P2002.
   const yaExiste = await prisma.supplier_voucher.findFirst({
     where: {
       supplier_id: supplierId,
@@ -192,20 +276,17 @@ const crear = async (payload = {}) => {
 
   if (yaExiste) {
     throw conflicto(
-      `El proveedor ya tiene registrado el comprobante ${tipo.voucher_type} ` +
-        `${puntoVenta}-${numero}.`
+      `El proveedor ya tiene registrado el comprobante ${tipo.voucher_type} ${puntoVenta}-${numero}.`
     );
   }
 
-  // ---- 4. Alta ----
-  /**
-   * El comprobante y su movimiento de cuenta corriente se crean juntos: si
-   * falla uno, no queda el otro suelto. El signo del tipo decide de qué lado
-   * del libro mayor se anota (+1 debe, -1 haber).
-   *
-   * Los tipos con affects_account = false (remito, recibo) se registran pero no
-   * mueven la cuenta.
-   */
+  // Empaquetar observaciones + ítems facturados
+  const observacionesEmpaquetadas = empaquetarObservaciones(
+    payload.observations ?? payload.observaciones,
+    items
+  );
+
+  // ---- 4. Alta en transacción ----
   return prisma.$transaction(async (tx) => {
     const comprobante = await tx.supplier_voucher.create({
       data: {
@@ -216,7 +297,8 @@ const crear = async (payload = {}) => {
         issue_date: emision,
         due_date: vencimiento,
         total_amount: importe,
-        observations: toText(payload.observations ?? payload.observaciones),
+        purchase_order_id: purchaseOrderId || null,
+        observations: observacionesEmpaquetadas,
         employees_id: employeeId,
       },
       include: {
@@ -242,4 +324,9 @@ const crear = async (payload = {}) => {
   });
 };
 
-module.exports = { listar, obtener, crear };
+module.exports = {
+  listar,
+  obtener,
+  ordenesCompraAprobadas,
+  crear,
+};

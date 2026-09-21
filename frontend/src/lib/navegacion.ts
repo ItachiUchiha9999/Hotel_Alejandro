@@ -101,6 +101,17 @@ export const MODULOS: ItemNavegacion[] = [
   },
 
 
+  
+  {
+    nombre: "Habitaciones",
+    ruta: "/habitaciones",
+    hijos: [
+      { nombre: "Servicios de Limpieza", ruta: "/habitaciones/housekeeping" },
+      // HAB-01, HAB-03 y HAB-04 se suman acá cuando estén disponibles
+    ],
+  },
+
+
 
   {
 

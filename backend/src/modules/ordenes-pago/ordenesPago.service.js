@@ -13,17 +13,28 @@ const { toId, toText } = require('../../utils/parse');
  *      proveedor, que no esté anulado, que sea pagable, y que el importe
  *      no supere el saldo pendiente.
  *   3. Confirmar: pasa a estado 1, actualiza paid_amount de cada
- *      comprobante, y registra el movimiento en la cuenta corriente.
+ *      comprobante, fija fecha/hora exacta en confirmed_date y registra el
+ *      movimiento en la cuenta corriente.
  */
 
 const ESTADO = { BORRADOR: 0, CONFIRMADA: 1, ANULADA: 2 };
 
 const includeCompleto = {
   suppliers: {
-    select: { supplier_id: true, supplier_legal_name: true, supplier_trade_name: true, supplier_cuit: true },
+    select: {
+      supplier_id: true,
+      supplier_legal_name: true,
+      supplier_trade_name: true,
+      supplier_cuit: true,
+    },
   },
   payment_method: true,
-  employees: { select: { employees_name: true, employees_lastname: true } },
+  employees: {
+    select: {
+      employees_name: true,
+      employees_lastname: true,
+    },
+  },
   payment_order_detail: {
     include: {
       supplier_voucher: {
@@ -35,7 +46,12 @@ const includeCompleto = {
           total_amount: true,
           paid_amount: true,
           voucher_status: true,
-          voucher_type: { select: { voucher_type: true, sign: true } },
+          voucher_type: {
+            select: {
+              voucher_type: true,
+              sign: true,
+            },
+          },
         },
       },
     },
@@ -60,12 +76,15 @@ const listar = async ({ supplierId } = {}) => {
 
 const obtener = async (id) => {
   const paymentOrderId = toId(id);
-  if (!paymentOrderId) throw invalido('El identificador de la orden de pago no es válido.');
+  if (!paymentOrderId) {
+    throw invalido('El identificador de la orden de pago no es válido.');
+  }
 
   const orden = await prisma.payment_order.findUnique({
     where: { payment_order_id: paymentOrderId },
     include: includeCompleto,
   });
+
   if (!orden) throw noEncontrado('La orden de pago no existe.');
   return orden;
 };
@@ -102,20 +121,27 @@ const crear = async (body) => {
   const paymentDate = body.fecha ?? body.payment_date;
   const observations = toText(body.observaciones ?? body.observations);
   const paymentReference = toText(body.referencia ?? body.payment_reference);
-  const employeeId = toId(body.employees_id ?? body.employeeId) || env.DEFAULT_EMPLOYEE_ID;
+  const employeeId =
+    toId(body.employees_id ?? body.employeeId) || env.DEFAULT_EMPLOYEE_ID;
 
   if (!supplierId) throw invalido('Elegí un proveedor.');
   if (!paymentMethodId) throw invalido('Elegí un método de pago.');
   if (!paymentDate) throw invalido('Ingresá la fecha de pago.');
 
-  const proveedor = await prisma.suppliers.findUnique({ where: { supplier_id: supplierId } });
+  const proveedor = await prisma.suppliers.findUnique({
+    where: { supplier_id: supplierId },
+  });
   if (!proveedor) throw noEncontrado('El proveedor no existe.');
   if (!proveedor.supplier_state) throw conflicto('El proveedor está inactivo.');
 
-  const metodo = await prisma.payment_method.findUnique({ where: { payment_method_id: paymentMethodId } });
+  const metodo = await prisma.payment_method.findUnique({
+    where: { payment_method_id: paymentMethodId },
+  });
   if (!metodo) throw noEncontrado('El método de pago no existe.');
 
-  const empleado = await prisma.employees.findUnique({ where: { employees_id: employeeId } });
+  const empleado = await prisma.employees.findUnique({
+    where: { employees_id: employeeId },
+  });
   if (!empleado) throw invalido('No se pudo identificar al empleado.');
 
   const orden = await prisma.payment_order.create({
@@ -154,9 +180,6 @@ const agregarDetalle = async (ordenId, body) => {
     throw conflicto('Solo se pueden agregar comprobantes a una orden en borrador.');
   }
 
-  // Los triggers de la base validan: mismo proveedor, no anulado, es pagable,
-  // importe no supera saldo pendiente. Si alguno falla, Prisma tira un error
-  // genérico con el mensaje del RAISE EXCEPTION del trigger.
   try {
     await prisma.payment_order_detail.create({
       data: {
@@ -169,9 +192,10 @@ const agregarDetalle = async (ordenId, body) => {
     if (err.code === 'P2002') {
       throw conflicto('Ese comprobante ya está incluido en esta orden.');
     }
-    // Los triggers de Postgres tiran mensajes útiles en err.message
     if (err.message?.includes('RAISE')) {
-      const msg = err.message.split('\n').find((l) => !l.startsWith('Code:')) ?? err.message;
+      const msg =
+        err.message.split('\n').find((l) => !l.startsWith('Code:')) ??
+        err.message;
       throw invalido(msg);
     }
     throw err;
@@ -189,7 +213,9 @@ const quitarDetalle = async (ordenId, detalleId) => {
     throw conflicto('Solo se pueden quitar comprobantes de una orden en borrador.');
   }
 
-  const detalle = await prisma.payment_order_detail.findUnique({ where: { detail_id: detailId } });
+  const detalle = await prisma.payment_order_detail.findUnique({
+    where: { detail_id: detailId },
+  });
   if (!detalle || detalle.payment_order_id !== paymentOrderId) {
     throw noEncontrado('El renglón no existe en esta orden.');
   }
@@ -199,7 +225,7 @@ const quitarDetalle = async (ordenId, detalleId) => {
 };
 
 // ---------------------------------------------------------------------------
-// Confirmar: pasar de BORRADOR a CONFIRMADA
+// Confirmar: pasar de BORRADOR a CONFIRMADA con fecha y hora actual
 // ---------------------------------------------------------------------------
 
 const confirmar = async (ordenId) => {
@@ -210,10 +236,14 @@ const confirmar = async (ordenId) => {
     throw conflicto('Solo se puede confirmar una orden en borrador.');
   }
   if (orden.payment_order_detail.length === 0) {
-    throw invalido('La orden no tiene comprobantes. Agregá al menos uno antes de confirmar.');
+    throw invalido(
+      'La orden no tiene comprobantes. Agregá al menos uno antes de confirmar.'
+    );
   }
 
   return prisma.$transaction(async (tx) => {
+    const momentoActual = new Date();
+
     // 1. Actualizar paid_amount de cada comprobante
     for (const det of orden.payment_order_detail) {
       await tx.supplier_voucher.update({
@@ -222,7 +252,7 @@ const confirmar = async (ordenId) => {
       });
     }
 
-    // 2. Registrar el movimiento en la cuenta corriente (crédito = baja la deuda)
+    // 2. Registrar el movimiento en la cuenta corriente (crédito = cancela deuda)
     await tx.supplier_account_movement.create({
       data: {
         supplier_id: orden.supplier_id,
@@ -231,15 +261,17 @@ const confirmar = async (ordenId) => {
         debit: 0,
         payment_order_id: paymentOrderId,
         employees_id: orden.employees_id,
+        movement_date: momentoActual,
       },
     });
 
-    // 3. Marcar la orden como confirmada
+    // 3. Marcar confirmada, sincronizar payment_date y guardar confirmed_date con hora exacta
     await tx.payment_order.update({
       where: { payment_order_id: paymentOrderId },
       data: {
         payment_order_status: ESTADO.CONFIRMADA,
-        confirmed_date: new Date(),
+        payment_date: momentoActual,
+        confirmed_date: momentoActual,
       },
     });
 
