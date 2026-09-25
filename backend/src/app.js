@@ -19,7 +19,12 @@ const condicionesFiscalesRoutes = require('./modules/condiciones-fiscales/condic
 const metodosPagoRoutes = require('./modules/metodos-pago/metodosPago.routes');
 const ordenesPagoRoutes = require('./modules/ordenes-pago/ordenesPago.routes');
 const cuentaCorrienteRoutes = require('./modules/cuenta-corriente/cuentaCorriente.routes');
+const tiposHabitacionRoutes = require('./modules/tipos-habitacion/tiposHabitacion.routes');
+const habitacionesRoutes = require('./modules/habitaciones/habitaciones.routes');
+const reservasRoutes = require('./modules/reservas/reservas.routes');
 const housekeepingRoutes = require('./modules/housekeeping/housekeeping.routes');
+const tarifasRoutes = require('./modules/tarifas/tarifas.routes');
+const panelHabitacionesRoutes = require('./modules/panel-habitaciones/panelHabitaciones.routes');
 
 const app = express();
 
@@ -50,11 +55,20 @@ app.use('/api/ordenes-pago', ordenesPagoRoutes);
 app.use('/api/ordenes-compra', ordenesCompraRoutes);
 app.use('/api/cuenta-corriente', cuentaCorrienteRoutes);
 
-// Sprint 3 — Housekeeping
+// Sprint 3 — reservas, habitaciones, tarifas y panel consolidado
+app.use('/api/tipos-habitacion', tiposHabitacionRoutes);
+app.use('/api/habitaciones', habitacionesRoutes);
+app.use('/api/reservas', reservasRoutes);
 app.use('/api/housekeeping', housekeepingRoutes);
+app.use('/api/tarifas', tarifasRoutes);
+app.use('/api/panel-habitaciones', panelHabitacionesRoutes);
+
 // ---------------------------------------------------------------------------
 // Alias en inglés.
 // ---------------------------------------------------------------------------
+// HU-9: /api/mantenimiento quedó como alias del módulo de housekeeping.
+app.use('/api/mantenimiento', housekeepingRoutes);
+
 app.use('/api/deposits', depositosRoutes);
 app.use('/api/movement-types', tiposMovimientoRoutes);
 app.use('/api/catalog', catalogoRoutes);

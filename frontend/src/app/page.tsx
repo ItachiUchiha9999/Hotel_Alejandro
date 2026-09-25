@@ -50,7 +50,7 @@ export default function InicioPage() {
   return (
     <>
       <PageHeader
-        eyebrow="SIGH · Módulo de stock"
+        eyebrow="SIGH · Sistema de Gestión Hotelera"
         titulo="Hotel Alejandro I"
         descripcion="Panel de control de insumos: blancos, limpieza, amenities y frigobar."
       />
@@ -69,7 +69,7 @@ export default function InicioPage() {
           <Link
             key={a.ruta}
             href={a.ruta}
-            className="rounded-xl border border-line bg-white p-5 shadow-card transition-colors hover:border-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            className="rounded-xl border border-line bg-white p-5 shadow-card transition-colors hover:border-gold focus-visible:outline-2 focus-visible:outline-gold"
           >
             <h2 className="font-serif text-base text-carbon">{a.titulo}</h2>
             <p className="mt-1 text-xs text-carbon/55">{a.detalle}</p>

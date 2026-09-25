@@ -33,13 +33,23 @@ const includeBloqueo = {
       room_id: true,
       room_number: true,
       floor_number: true,
-      room_status: true,
+      room_state: true,
       room_type: { select: { room_type_name: true } },
     },
   },
-  opened_by_employee: { select: { employees_name: true, employees_lastname: true } },
-  closed_by_employee: { select: { employees_name: true, employees_lastname: true } },
+  employee_opened: { select: { employees_name: true, employees_lastname: true } },
+  employee_closed: { select: { employees_name: true, employees_lastname: true } },
 };
+
+/**
+ * El frontend trabaja con `room_status`; en Prisma ese campo se llama
+ * `room_state` (mapeado a la columna room_status). La traducción se hace acá,
+ * en el borde del módulo, para que la API no exponga el nombre interno.
+ */
+const aDTO = (bloqueo) =>
+  bloqueo && bloqueo.room
+    ? { ...bloqueo, room: { ...bloqueo.room, room_status: bloqueo.room.room_state } }
+    : bloqueo;
 
 /** Fecha YYYY-MM-DD, o null si no es válida. */
 const toDate = (valor) => {
@@ -66,15 +76,15 @@ const getTablero = async ({ estado } = {}) => {
   const habitaciones = await prisma.room.findMany({
     where: {
       active: true,
-      ...(estadoFiltro ? { room_status: estadoFiltro } : {}),
+      ...(estadoFiltro ? { room_state: estadoFiltro } : {}),
     },
     select: {
       room_id: true,
       room_number: true,
       floor_number: true,
-      room_status: true,
-      room_type: { select: { room_type_name: true, max_capacity: true } },
-      room_maintenance: {
+      room_state: true,
+      room_type: { select: { room_type_name: true, room_type_max_capacity: true } },
+      maintenances: {
         where: { actual_end_date: null },
         orderBy: { start_date: 'asc' },
         select: {
@@ -92,23 +102,23 @@ const getTablero = async ({ estado } = {}) => {
   const hoy = soloFecha(new Date());
 
   return habitaciones.map((h) => {
-    const vigente = h.room_maintenance.find((m) => soloFecha(new Date(m.start_date)) <= hoy) ?? null;
-    const programados = h.room_maintenance.filter((m) => soloFecha(new Date(m.start_date)) > hoy);
+    const vigente = h.maintenances.find((m) => soloFecha(new Date(m.start_date)) <= hoy) ?? null;
+    const programados = h.maintenances.filter((m) => soloFecha(new Date(m.start_date)) > hoy);
 
     return {
       room_id: h.room_id,
       room_number: h.room_number,
       floor_number: h.floor_number,
-      room_status: h.room_status,
+      room_status: h.room_state,
       room_type_name: h.room_type.room_type_name,
-      max_capacity: h.room_type.max_capacity,
+      max_capacity: h.room_type.room_type_max_capacity,
       bloqueo_vigente: vigente,
       bloqueos_programados: programados,
       /**
        * Una habitación en LIMPIEZA sin bloqueo abierto es la que salió del
        * check-out. Se marca aparte porque es la tarea más urgente del turno.
        */
-      pendiente_post_checkout: h.room_status === 'LIMPIEZA' && !vigente,
+      pendiente_post_checkout: h.room_state === 'LIMPIEZA' && !vigente,
     };
   });
 };
@@ -116,13 +126,13 @@ const getTablero = async ({ estado } = {}) => {
 /** Resumen por estado, para las tarjetas del encabezado y para HAB-04. */
 const getResumen = async () => {
   const grupos = await prisma.room.groupBy({
-    by: ['room_status'],
+    by: ['room_state'],
     where: { active: true },
     _count: { room_id: true },
   });
 
   const resumen = { DISPONIBLE: 0, OCUPADA: 0, LIMPIEZA: 0, MANTENIMIENTO: 0, FUERA_DE_SERVICIO: 0 };
-  for (const g of grupos) resumen[g.room_status] = g._count.room_id;
+  for (const g of grupos) resumen[g.room_state] = g._count.room_id;
 
   return { ...resumen, TOTAL: Object.values(resumen).reduce((a, b) => a + b, 0) };
 };
@@ -136,7 +146,7 @@ const listar = async ({ habitacion, abiertos, tipo } = {}) => {
     throw invalido(`El tipo tiene que ser uno de: ${TIPOS.join(', ')}.`);
   }
 
-  return prisma.room_maintenance.findMany({
+  const bloqueos = await prisma.room_maintenance.findMany({
     where: {
       ...(roomId ? { room_id: roomId } : {}),
       ...(soloAbiertos ? { actual_end_date: null } : {}),
@@ -145,6 +155,8 @@ const listar = async ({ habitacion, abiertos, tipo } = {}) => {
     include: includeBloqueo,
     orderBy: [{ actual_end_date: { sort: 'asc', nulls: 'first' } }, { start_date: 'desc' }],
   });
+
+  return bloqueos.map(aDTO);
 };
 
 const obtener = async (id) => {
@@ -157,7 +169,7 @@ const obtener = async (id) => {
   });
 
   if (!bloqueo) throw noEncontrado('El bloqueo no existe.');
-  return bloqueo;
+  return aDTO(bloqueo);
 };
 
 /** Historial completo de una habitación: todos sus bloqueos, abiertos y cerrados. */
@@ -167,7 +179,7 @@ const historial = async (roomIdParam) => {
 
   const habitacion = await prisma.room.findUnique({
     where: { room_id: roomId },
-    select: { room_id: true, room_number: true, room_status: true },
+    select: { room_id: true, room_number: true, room_state: true },
   });
   if (!habitacion) throw noEncontrado('La habitación no existe.');
 
@@ -177,7 +189,10 @@ const historial = async (roomIdParam) => {
     orderBy: { start_date: 'desc' },
   });
 
-  return { habitacion, bloqueos };
+  return {
+    habitacion: { ...habitacion, room_status: habitacion.room_state },
+    bloqueos: bloqueos.map(aDTO),
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -208,7 +223,8 @@ const abrir = async (payload = {}) => {
   const finEstimado = toDate(payload.estimated_end_date ?? payload.fechaFinEstimada);
   const motivo = toText(payload.reason ?? payload.motivo);
 
-  const habitacion = await prisma.room.findUnique({ where: { room_id: roomId } });
+  const fila = await prisma.room.findUnique({ where: { room_id: roomId } });
+  const habitacion = fila ? { ...fila, room_status: fila.room_state } : null;
 
   validarApertura({ habitacion, tipo, inicio, finEstimado, motivo, hoy: new Date() });
 
@@ -274,7 +290,8 @@ const marcarLimpia = async (roomIdParam, payload = {}) => {
   const roomId = toId(roomIdParam);
   if (!roomId) throw invalido('El identificador de la habitación no es válido.');
 
-  const habitacion = await prisma.room.findUnique({ where: { room_id: roomId } });
+  const fila = await prisma.room.findUnique({ where: { room_id: roomId } });
+  const habitacion = fila ? { ...fila, room_status: fila.room_state } : null;
   validarMarcarLimpia(habitacion);
 
   const empleado = empleadoActual(payload);
@@ -307,10 +324,12 @@ const marcarLimpia = async (roomIdParam, payload = {}) => {
       data: { actual_end_date: hoy, closing_notes: notas, closed_by: empleado },
     });
 
-    return tx.room.findUnique({
+    const actualizada = await tx.room.findUnique({
       where: { room_id: roomId },
-      select: { room_id: true, room_number: true, room_status: true },
+      select: { room_id: true, room_number: true, room_state: true },
     });
+
+    return { ...actualizada, room_status: actualizada.room_state };
   });
 };
 

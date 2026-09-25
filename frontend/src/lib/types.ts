@@ -38,11 +38,9 @@ export interface TipoMovimiento {
   movement_type: string;
   description: string;
   effect: Efecto;
-  /** Solo viene en la ABM: el listado para movimientos ya filtra por activos. */
   active?: boolean;
 }
 
-/** Un renglón del formulario de movimientos: un artículo y su cantidad. */
 export interface RenglonMovimiento {
   article_code: string;
   article_name: string;
@@ -115,4 +113,109 @@ export interface Comprobante {
   pending_amount: string | number;
   voucher_status: "PENDIENTE" | "PAGADO" | "ANULADO";
   is_overdue: boolean;
+}
+
+/* ---------------------------------------------------------------------------
+ * Sprint 3 — Habitaciones (HAB-03, HAB-01)
+ * ------------------------------------------------------------------------- */
+
+export type EstadoHabitacion =
+  | "DISPONIBLE"
+  | "OCUPADA"
+  | "LIMPIEZA"
+  | "MANTENIMIENTO"
+  | "FUERA_DE_SERVICIO";
+
+export interface TipoHabitacion {
+  room_type_id: number;
+  room_type_name: string;
+  room_type_description: string | null;
+  room_type_max_capacity: number;
+  room_type_state: boolean;
+  rooms_count: number;
+  current_price?: string | number | null;
+  current_currency?: string | null;
+}
+
+export interface Habitacion {
+  room_id: number;
+  room_number: string;
+  room_type_id: number;
+  room_state: EstadoHabitacion;
+  room_type: {
+    room_type_id: number;
+    room_type_name: string;
+    room_type_max_capacity: number;
+    room_type_state: boolean;
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ * Sprint 3 — Reservas (RES-01, RES-09, RES-11)
+ * ------------------------------------------------------------------------- */
+
+export type EstadoReserva =
+  | "PENDIENTE"
+  | "CONFIRMADA"
+  | "IN_HOUSE"
+  | "FINALIZADA"
+  | "CANCELADA"
+  | "NO_SHOW";
+
+export interface HuespedResumen {
+  guest_id: number;
+  document_type: string;
+  document_number: string;
+  first_name: string;
+  last_name: string;
+}
+
+export interface HabitacionResumen {
+  room_id: number;
+  room_number: string;
+}
+
+export interface Reserva {
+  reservation_id: number;
+  reservation_code: string;
+  guest_id: number;
+  room_id: number;
+  check_in_date: string;
+  check_out_date: string;
+  adults: number;
+  children: number;
+  price_per_night: string | number;
+  reservation_status: EstadoReserva;
+  reservation_source: string;
+  observations: string | null;
+  creation_date?: string;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
+  guest: HuespedResumen;
+  room: HabitacionResumen;
+}
+
+export interface CheckInInfo {
+  check_in_id: number;
+  reservation_id: number;
+  check_in_at: string;
+  actual_adults: number | null;
+  actual_children: number | null;
+  observations: string | null;
+  employees_id: number;
+}
+
+export interface CheckOutInfo {
+  check_out_id: number;
+  reservation_id: number;
+  check_out_at: string;
+  pending_charges: boolean;
+  pending_detail: string | null;
+  observations: string | null;
+  employees_id: number;
+}
+
+export interface ReservaDetalle extends Reserva {
+  check_in: CheckInInfo | null;
+  check_out: CheckOutInfo | null;
 }

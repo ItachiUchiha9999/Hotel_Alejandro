@@ -1,14 +1,11 @@
 /**
  * Cliente HTTP único del frontend.
- *
- * Antes cada pantalla escribía su propio fetch con la URL del backend
- * hardcodeada, y no coincidían entre sí: unas apuntaban al puerto 3000 y otras
- * al 4000. Acá la base sale de una sola variable de entorno.
  */
+
+import type { Reserva, ReservaDetalle, TipoHabitacion } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
-/** Error de la API con el código HTTP y el mensaje que mandó el backend. */
 export class ApiError extends Error {
   status: number;
 
@@ -21,11 +18,6 @@ export class ApiError extends Error {
 
 type Payload = Record<string, unknown> | undefined;
 
-/**
- * El backend responde siempre { ok, data, message }.
- * Este helper devuelve directamente `data` para que las pantallas no tengan
- * que desenvolver la respuesta en cada llamada.
- */
 async function request<T>(ruta: string, init?: RequestInit): Promise<T> {
   let respuesta: Response;
 
@@ -36,10 +28,6 @@ async function request<T>(ruta: string, init?: RequestInit): Promise<T> {
       ...init,
     });
   } catch (err) {
-    // Si la request fue cancelada a propósito (AbortController, usado para
-    // descartar respuestas de filtros que ya quedaron obsoletos), no es un
-    // error de conexión: hay que dejar pasar el AbortError tal cual para que
-    // quien llamó pueda distinguirlo y lo ignore en silencio.
     if (err instanceof DOMException && err.name === "AbortError") {
       throw err;
     }
@@ -71,5 +59,129 @@ export const api = {
     request<T>(ruta, { method: "PATCH", body: JSON.stringify(body ?? {}) }),
 };
 
-/** Para descargas directas (Excel), que no pasan por fetch. */
 export const urlDescarga = (ruta: string) => `${API_URL}/api${ruta}`;
+
+/* ---------------------------------------------------------------------------
+ * Reservas (RES-01, RES-09, RES-11)
+ * ------------------------------------------------------------------------- */
+
+export interface FiltrosReservas {
+  estado?: string;
+  desde?: string;
+  hasta?: string;
+}
+
+export function getReservas(filtros: FiltrosReservas = {}, init?: RequestInit) {
+  const params = new URLSearchParams();
+  if (filtros.estado) params.set("estado", filtros.estado);
+  if (filtros.desde) params.set("desde", filtros.desde);
+  if (filtros.hasta) params.set("hasta", filtros.hasta);
+  const query = params.toString();
+  return api.get<Reserva[]>(`/reservas${query ? `?${query}` : ""}`, init);
+}
+
+export function getReserva(id: number | string) {
+  return api.get<ReservaDetalle>(`/reservas/${id}`);
+}
+
+export interface DatosCheckIn {
+  actualAdults?: number;
+  actualChildren?: number;
+  observations?: string;
+  employeeId: number | string;
+}
+
+export function checkInReserva(id: number | string, datos: DatosCheckIn) {
+  const { employeeId, ...resto } = datos;
+  return api.post<Reserva>(`/reservas/${id}/checkin`, {
+    ...resto,
+    usuarioRecepcionId: employeeId,
+  });
+}
+
+export interface DatosCheckOut {
+  pendingCharges?: boolean;
+  pendingDetail?: string;
+  observations?: string;
+  employeeId: number | string;
+}
+
+export function checkOutReserva(id: number | string, datos: DatosCheckOut) {
+  const { employeeId, ...resto } = datos;
+  return api.post<Reserva>(`/reservas/${id}/checkout`, {
+    ...resto,
+    usuarioRecepcionId: employeeId,
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * Mantenimiento y Housekeeping (HAB-06)
+ * ------------------------------------------------------------------------- */
+
+export type DatosBloqueoMantenimiento = {
+  roomId: number;
+  tipo: "MANTENIMIENTO" | "LIMPIEZA" | "FUERA_DE_SERVICIO";
+  fechaInicio: string;
+  fechaFinEstimada: string;
+  motivo: string;
+  employeeId?: number | string;
+};
+
+/**
+ * El formulario de habitaciones usa nombres en español; el módulo de
+ * housekeeping recibe los de la tabla. La traducción vive acá para no tocar
+ * los componentes que ya estaban escritos.
+ */
+function aHousekeeping(datos: DatosBloqueoMantenimiento): Record<string, unknown> {
+  return {
+    room_id: datos.roomId,
+    maintenance_type: datos.tipo,
+    start_date: datos.fechaInicio,
+    estimated_end_date: datos.fechaFinEstimada,
+    reason: datos.motivo,
+    employees_id: datos.employeeId,
+  };
+}
+
+export function registrarMantenimiento(datos: DatosBloqueoMantenimiento) {
+  return api.post<{ ok: boolean; message: string; data: any }>("/housekeeping", aHousekeeping(datos));
+}
+
+export function cerrarMantenimiento(
+  id: number,
+  datos: { fechaFinReal?: string; notasCierre?: string; employeeId?: number | string }
+) {
+  return api.patch<{ ok: boolean; message: string; data: any }>(`/housekeeping/${id}/finalizar`, {
+    actual_end_date: datos.fechaFinReal,
+    closing_notes: datos.notasCierre,
+    employees_id: datos.employeeId,
+  });
+}
+
+export function getMantenimientosActivos(roomId?: number) {
+  const query = roomId ? `?habitacion=${roomId}&abiertos=true` : "?abiertos=true";
+  return api.get<any[]>(`/housekeeping${query}`);
+}
+
+/* ---------------------------------------------------------------------------
+ * Tipos de habitación y Tarifas (HAB-04, TAR-01)
+ * ------------------------------------------------------------------------- */
+
+export function getTiposHabitacion(filtroEstado?: string) {
+  const q = filtroEstado && filtroEstado !== "TODOS" ? `?estado=${filtroEstado}` : "";
+  return api.get<TipoHabitacion[]>(`/tipos-habitacion${q}`);
+}
+
+export function asignarTarifaTipo(
+  id: number,
+  datos: { basePrice: number; reason?: string; employeeId?: string | number }
+) {
+  return api.post<{ ok: boolean; message: string; data: TipoHabitacion }>(
+    `/tipos-habitacion/${id}/tarifa`,
+    datos as Record<string, unknown>
+  );
+}
+
+export function getHistorialTarifas(id: number) {
+  return api.get<any[]>(`/tipos-habitacion/${id}/tarifas/historial`);
+}

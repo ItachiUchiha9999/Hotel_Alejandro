@@ -333,7 +333,7 @@ export default function HousekeepingPage() {
                         )}
                       </TD>
                       <TD className="text-xs">
-                        {b.opened_by_employee.employees_name} {b.opened_by_employee.employees_lastname}
+                        {b.employee_opened.employees_name} {b.employee_opened.employees_lastname}
                       </TD>
                     </TR>
                   );
