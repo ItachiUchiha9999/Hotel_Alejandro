@@ -1045,12 +1045,14 @@ CREATE TABLE Room_Type_Rate (
     currency      VARCHAR(3)    NOT NULL DEFAULT 'ARS',
     valid_from    DATE          NOT NULL DEFAULT CURRENT_DATE,
     valid_to      DATE,
+    season_name   VARCHAR(60)   NOT NULL DEFAULT 'GENERAL',
     reason        VARCHAR(255),
     employees_id  INT           NOT NULL,
     creation_date TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT ck_rate_price_positive CHECK (base_price > 0),
     CONSTRAINT ck_rate_period CHECK (valid_to IS NULL OR valid_to > valid_from),
+    CONSTRAINT ck_rate_season_name CHECK (season_name IN ('GENERAL', 'ALTA', 'BAJA', 'ESPECIAL')),
 
     CONSTRAINT fk_rate_room_type FOREIGN KEY (room_type_id) REFERENCES Room_Type(room_type_id),
     CONSTRAINT fk_rate_employee  FOREIGN KEY (employees_id) REFERENCES Employees(employees_id),
@@ -1247,6 +1249,7 @@ CREATE TABLE Reservation (
     creation_date      TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     cancelled_at       TIMESTAMPTZ,
     cancellation_reason VARCHAR(255),
+    pending_expires_at TIMESTAMPTZ,
 
     CONSTRAINT ck_reservation_dates   CHECK (check_out_date > check_in_date),
     CONSTRAINT ck_reservation_price   CHECK (price_per_night > 0),
@@ -1284,6 +1287,23 @@ CREATE INDEX idx_reservation_room   ON Reservation(room_id);
 CREATE INDEX idx_reservation_status ON Reservation(reservation_status);
 CREATE INDEX idx_reservation_dates  ON Reservation(check_in_date, check_out_date);
 CREATE INDEX idx_reservation_employee ON Reservation(employees_id);
+
+/** Cobros parciales o totales de alojamiento, separados de los cargos extra. */
+CREATE TABLE Reservation_Payment (
+    reservation_payment_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    reservation_id INT NOT NULL,
+    payment_method_id INT NOT NULL,
+    amount NUMERIC(14,2) NOT NULL,
+    paid_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payment_reference VARCHAR(100),
+    employees_id INT NOT NULL,
+    CONSTRAINT ck_reservation_payment_amount CHECK (amount > 0),
+    CONSTRAINT fk_reservation_payment_reservation FOREIGN KEY (reservation_id) REFERENCES Reservation(reservation_id),
+    CONSTRAINT fk_reservation_payment_method FOREIGN KEY (payment_method_id) REFERENCES Payment_Method(payment_method_id),
+    CONSTRAINT fk_reservation_payment_employee FOREIGN KEY (employees_id) REFERENCES Employees(employees_id)
+);
+CREATE INDEX idx_reservation_payment_date ON Reservation_Payment(paid_at);
+CREATE INDEX idx_reservation_payment_reservation ON Reservation_Payment(reservation_id, paid_at);
 
 -- Las llegadas del día son la consulta más frecuente de recepción.
 CREATE INDEX idx_reservation_llegadas
@@ -1369,6 +1389,26 @@ CREATE TABLE Reservation_Check_In (
         FOREIGN KEY (employees_id) REFERENCES Employees(employees_id)
 );
 
+/** Huéspedes identificados al check-in, con snapshot de sus datos del documento. */
+CREATE TABLE Reservation_Stay_Guest (
+    stay_guest_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    reservation_id INT NOT NULL,
+    guest_role VARCHAR(20) NOT NULL,
+    person_type VARCHAR(10) NOT NULL,
+    document_type VARCHAR(20) NOT NULL,
+    document_number VARCHAR(30) NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    employees_id INT NOT NULL,
+    CONSTRAINT ck_stay_guest_role CHECK (guest_role IN ('TITULAR', 'ACOMPANANTE')),
+    CONSTRAINT ck_stay_guest_type CHECK (person_type IN ('ADULTO', 'MENOR')),
+    CONSTRAINT fk_stay_guest_reservation FOREIGN KEY (reservation_id) REFERENCES Reservation(reservation_id),
+    CONSTRAINT fk_stay_guest_employee FOREIGN KEY (employees_id) REFERENCES Employees(employees_id),
+    CONSTRAINT uq_stay_guest_document UNIQUE (reservation_id, document_type, document_number)
+);
+CREATE INDEX idx_stay_guest_reservation ON Reservation_Stay_Guest(reservation_id);
+
 /**
  * `pending_charges` deja registrado si al momento de la salida había consumos
  * sin facturar. RES-11 pide advertirlo, no bloquearlo: en la práctica el
@@ -1389,6 +1429,68 @@ CREATE TABLE Reservation_Check_Out (
     CONSTRAINT fk_checkout_employee
         FOREIGN KEY (employees_id) REFERENCES Employees(employees_id)
 );
+
+/** Catálogo de servicios con precio actual e historial de modificaciones. */
+CREATE TABLE Room_Service_Catalog (
+    service_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    category VARCHAR(30) NOT NULL DEFAULT 'OTROS',
+    service_name VARCHAR(100) NOT NULL UNIQUE,
+    description VARCHAR(255),
+    current_price NUMERIC(14,2) NOT NULL,
+    currency CHAR(3) NOT NULL DEFAULT 'ARS',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT NOT NULL,
+    inventory_article_id INT,
+    inventory_deposit_id INT,
+    CONSTRAINT ck_room_service_category CHECK (category IN ('MINIBAR', 'GASTRONOMIA', 'LAVANDERIA', 'ESTACIONAMIENTO', 'LIMPIEZA', 'TRANSPORTE', 'OTROS')),
+    CONSTRAINT ck_room_service_price CHECK (current_price > 0),
+    CONSTRAINT fk_room_service_created_by FOREIGN KEY (created_by) REFERENCES Employees(employees_id),
+    CONSTRAINT fk_room_service_inventory_article FOREIGN KEY (inventory_article_id) REFERENCES Articles(article_id),
+    CONSTRAINT fk_room_service_inventory_deposit FOREIGN KEY (inventory_deposit_id) REFERENCES Deposit(deposit_id),
+    CONSTRAINT ck_room_service_minibar_stock CHECK ((category = 'MINIBAR' AND inventory_article_id IS NOT NULL AND inventory_deposit_id IS NOT NULL) OR (category <> 'MINIBAR' AND inventory_article_id IS NULL AND inventory_deposit_id IS NULL))
+);
+
+CREATE TABLE Room_Service_Price_History (
+    price_history_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    service_id INT NOT NULL,
+    previous_price NUMERIC(14,2),
+    new_price NUMERIC(14,2) NOT NULL,
+    valid_from TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    employees_id INT NOT NULL,
+    CONSTRAINT ck_service_new_price CHECK (new_price > 0),
+    CONSTRAINT fk_service_price_history_service FOREIGN KEY (service_id) REFERENCES Room_Service_Catalog(service_id),
+    CONSTRAINT fk_service_price_history_employee FOREIGN KEY (employees_id) REFERENCES Employees(employees_id)
+);
+CREATE INDEX idx_service_price_history ON Room_Service_Price_History(service_id, valid_from DESC);
+
+/** Cargo imputado a la habitación ocupada; reservation_id identifica su folio de estadía. */
+CREATE TABLE Room_Service_Charge (
+    charge_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    reservation_id INT NOT NULL,
+    room_id INT NOT NULL,
+    service_id INT NOT NULL,
+    service_name VARCHAR(100) NOT NULL,
+    quantity SMALLINT NOT NULL DEFAULT 1,
+    unit_price NUMERIC(14,2) NOT NULL,
+    total_amount NUMERIC(14,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    charged_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    employees_id INT NOT NULL,
+    paid_at TIMESTAMPTZ,
+    paid_by INT,
+    payment_method_id INT,
+    payment_reference VARCHAR(100),
+    CONSTRAINT ck_room_service_quantity CHECK (quantity > 0),
+    CONSTRAINT ck_room_service_charge_price CHECK (unit_price > 0),
+    CONSTRAINT fk_room_service_charge_reservation FOREIGN KEY (reservation_id) REFERENCES Reservation(reservation_id),
+    CONSTRAINT fk_room_service_charge_room FOREIGN KEY (room_id) REFERENCES Room(room_id),
+    CONSTRAINT fk_room_service_charge_service FOREIGN KEY (service_id) REFERENCES Room_Service_Catalog(service_id),
+    CONSTRAINT fk_room_service_charge_employee FOREIGN KEY (employees_id) REFERENCES Employees(employees_id),
+    CONSTRAINT fk_room_service_charge_paid_by FOREIGN KEY (paid_by) REFERENCES Employees(employees_id),
+    CONSTRAINT fk_room_service_charge_payment_method FOREIGN KEY (payment_method_id) REFERENCES Payment_Method(payment_method_id),
+    CONSTRAINT ck_room_service_paid_by CHECK ((paid_at IS NULL) = (paid_by IS NULL))
+);
+CREATE INDEX idx_room_service_charge_stay ON Room_Service_Charge(reservation_id, charged_at);
 
 -- =====================================================================
 -- 11. Mantenimiento y limpieza (HAB-06)
@@ -1577,6 +1679,7 @@ BEGIN
         FROM Room_Maintenance
         WHERE room_id = NEW.room_id
           AND actual_end_date IS NULL
+          AND maintenance_type <> 'LIMPIEZA'
           AND daterange(start_date, estimated_end_date, '[]')
               && daterange(NEW.check_in_date, NEW.check_out_date, '[)')
         LIMIT 1;
@@ -1677,8 +1780,8 @@ DECLARE
 BEGIN
     SELECT * INTO v_reserva FROM Reservation WHERE reservation_id = NEW.reservation_id;
 
-    IF v_reserva.reservation_status NOT IN ('CONFIRMADA', 'PENDIENTE') THEN
-        RAISE EXCEPTION 'Solo se puede hacer check-in de una reserva confirmada o pendiente. Estado actual: %.',
+    IF v_reserva.reservation_status <> 'CONFIRMADA' THEN
+        RAISE EXCEPTION 'Solo se puede hacer check-in de una reserva confirmada. Estado actual: %.',
             v_reserva.reservation_status;
     END IF;
 
@@ -1860,6 +1963,7 @@ BEGIN
           SELECT 1 FROM Reservation res
           WHERE res.room_id = r.room_id
             AND res.reservation_status IN ('PENDIENTE', 'CONFIRMADA', 'IN_HOUSE')
+            AND (res.reservation_status <> 'PENDIENTE' OR res.pending_expires_at IS NULL OR res.pending_expires_at > CURRENT_TIMESTAMP)
             AND daterange(res.check_in_date, res.check_out_date, '[)')
                 && daterange(p_check_in, p_check_out, '[)')
       )
@@ -1868,6 +1972,7 @@ BEGIN
           SELECT 1 FROM Room_Maintenance rm
           WHERE rm.room_id = r.room_id
             AND rm.actual_end_date IS NULL
+            AND rm.maintenance_type <> 'LIMPIEZA'
             AND daterange(rm.start_date, rm.estimated_end_date, '[]')
                 && daterange(p_check_in, p_check_out, '[)')
       )

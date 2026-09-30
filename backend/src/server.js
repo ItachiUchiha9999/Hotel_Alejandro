@@ -1,6 +1,14 @@
 const app = require('./app');
 const env = require('./config/env');
 const prisma = require('./db/prisma');
+const reservasService = require('./modules/reservas/reservas.service');
+
+const expirarPendientes = () => reservasService.expirarPendientes().catch((error) => {
+  console.error('No se pudieron liberar las reservas pendientes vencidas:', error.message);
+});
+expirarPendientes();
+const jobExpiracionReservas = setInterval(expirarPendientes, 60 * 1000);
+jobExpiracionReservas.unref();
 
 const server = app.listen(env.PORT, () => {
   console.log(`SIGH backend escuchando en http://localhost:${env.PORT}`);
@@ -10,6 +18,7 @@ const server = app.listen(env.PORT, () => {
 /** Cierre ordenado: libera el pool de conexiones antes de salir. */
 const apagar = async (senal) => {
   console.log(`\n${senal} recibido, cerrando...`);
+  clearInterval(jobExpiracionReservas);
   server.close();
   await prisma.$disconnect();
   process.exit(0);

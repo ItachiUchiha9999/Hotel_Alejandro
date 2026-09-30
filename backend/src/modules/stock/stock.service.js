@@ -351,6 +351,21 @@ const crearMovimiento = async (payload = {}) => {
   });
 };
 
+/** Descuenta un consumo del inventario y registra su movimiento dentro de una transacción existente. */
+const registrarConsumoEnTransaccion = async (tx, { articleId, depositId, quantity, employeeId, observations }) => {
+  const articulo = await tx.articles.findUnique({ where: { article_id: articleId } });
+  if (!articulo || !articulo.article_state) throw conflicto('El artículo de minibar no existe o está inactivo.');
+  const deposito = await tx.deposit.findUnique({ where: { deposit_id: depositId } });
+  if (!deposito || !deposito.deposit_state) throw conflicto('El depósito de minibar no existe o está inactivo.');
+  const tipo = await tx.movement_type.findUnique({ where: { movement_type: 'CONSUMO' } });
+  if (!tipo || !tipo.active || tipo.effect !== EFFECT.RESTA) throw conflicto('Falta configurar un tipo de movimiento CONSUMO activo con efecto de salida.');
+  const stockId = await restarStock(tx, articleId, depositId, quantity, articulo.article_code);
+  const movimiento = await tx.stock_movement.create({
+    data: { movement_type_id: tipo.movement_type_id, deposit_origin_id: depositId, employees_id: employeeId, observations },
+  });
+  await tx.movement_stock_detail.create({ data: { stock_movement_id: movimiento.stock_movement_id, stock_id: stockId, amount: quantity } });
+};
+
 module.exports = {
   EFFECT,
   getSaldoConsolidado,
@@ -358,4 +373,5 @@ module.exports = {
   getTiposMovimiento,
   getHistorial,
   crearMovimiento,
+  registrarConsumoEnTransaccion,
 };

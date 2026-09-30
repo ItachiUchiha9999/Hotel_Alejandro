@@ -63,8 +63,8 @@ export interface Bloqueo {
     room_status: EstadoHabitacion;
     room_type: { room_type_name: string };
   };
-  opened_by_employee: EmpleadoRef;
-  closed_by_employee: EmpleadoRef | null;
+  employee_opened: EmpleadoRef;
+  employee_closed: EmpleadoRef | null;
 }
 
 /** Etiqueta legible y tono del Badge para cada estado. */

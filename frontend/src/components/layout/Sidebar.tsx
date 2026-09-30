@@ -77,7 +77,7 @@ export function Sidebar({ abierto, onCerrar }: SidebarProps) {
             const clasesBase = cn(
               "flex min-h-[40px] w-full items-center rounded-lg py-2.5 text-sm transition-colors",
               colapsado ? "justify-center px-0" : "px-3 text-left",
-              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold",
+              "focus-visible:outline-2 focus-visible:outline-gold",
               activo
                 ? "bg-white/10 font-medium text-bone"
                 : "text-bone/55 hover:bg-white/5 hover:text-bone",
@@ -132,7 +132,7 @@ export function Sidebar({ abierto, onCerrar }: SidebarProps) {
                           aria-current={hijoActivo ? "page" : undefined}
                           className={cn(
                             "rounded-md px-3 py-1.5 text-[0.8rem] transition-colors",
-                            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold",
+                            "focus-visible:outline-2 focus-visible:outline-gold",
                             hijoActivo ? "text-gold" : "text-bone/45 hover:text-bone/80",
                           )}
                         >

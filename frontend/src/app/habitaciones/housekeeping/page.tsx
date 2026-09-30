@@ -121,7 +121,7 @@ export default function HousekeepingPage() {
     <>
       <PageHeader
         titulo="Limpieza y Mantenimiento"
-        descripcion="Estado de limpieza y mantenimiento de las habitaciones. Una habitación bloqueada no se ofrece en la búsqueda de disponibilidad."
+        descripcion=""
       />
 
       {/* ---------- Resumen por estado ---------- */}
@@ -134,7 +134,7 @@ export default function HousekeepingPage() {
               onClick={() => setFiltro(e)}
               className={cn(
                 "rounded-xl border bg-white p-4 text-left shadow-card transition-colors",
-                "focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold",
+                "focus-visible:outline-2 focus-visible:outline-gold",
                 filtro === e ? "border-gold" : "border-line hover:border-gold/60",
               )}
             >
@@ -333,7 +333,7 @@ export default function HousekeepingPage() {
                         )}
                       </TD>
                       <TD className="text-xs">
-                        {b.opened_by_employee.employees_name} {b.opened_by_employee.employees_lastname}
+                        {b.employee_opened.employees_name} {b.employee_opened.employees_lastname}
                       </TD>
                     </TR>
                   );
