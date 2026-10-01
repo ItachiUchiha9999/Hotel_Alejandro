@@ -7,6 +7,7 @@ const actor = (req, body = {}) =>
 const crear = asyncHandler(async (req, res) => {
   const data = await service.crear({
     guestId: req.body.clienteId ?? req.body.guestId ?? req.body.guest_id,
+    newGuest: req.body.nuevoCliente ?? req.body.newGuest,
     roomId: req.body.habitacionId ?? req.body.room_id,
     checkIn: req.body.fechaIngreso ?? req.body.check_in,
     checkOut: req.body.fechaEgreso ?? req.body.check_out,

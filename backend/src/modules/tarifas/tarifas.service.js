@@ -27,7 +27,7 @@ const fechaLocalHoy = () => new Intl.DateTimeFormat('en-CA', {
 
 const PRECIO_SQL = `
   SELECT rr.rate_id, rr.room_type_id, rr.base_price, rr.currency, rr.valid_from,
-         rr.valid_to, rr.season_name, rr.reason, rr.employees_id, rr.creation_date,
+         rr.valid_to, rr.season_name, rr.reason, rr.employees_id, rr.creation_date, rr.active,
          jsonb_build_object(
            'room_type_id', rt.room_type_id, 'room_type_name', rt.room_type_name,
            'room_type_max_capacity', rt.max_capacity,
@@ -48,7 +48,7 @@ const listar = async ({ tipo, soloVigentes = false } = {}) => {
   const filas = await prisma.$queryRaw`
     ${Prisma.raw(PRECIO_SQL)}
     WHERE (${tipoId}::int IS NULL OR rr.room_type_id = ${tipoId})
-      AND (NOT ${soloActuales}::boolean OR (rr.valid_from <= ${hoy}::date AND (rr.valid_to IS NULL OR rr.valid_to > ${hoy}::date)))
+      AND (NOT ${soloActuales}::boolean OR (rr.active AND rr.valid_from <= ${hoy}::date AND (rr.valid_to IS NULL OR rr.valid_to > ${hoy}::date)))
     ORDER BY rr.valid_from DESC, rr.rate_id DESC`;
   return filas.map(presentarTarifa);
 };
@@ -116,4 +116,52 @@ const crear = async (datos = {}, actorEmployeeId = 1) => {
   }
 };
 
-module.exports = { listar, obtener, crear };
+// Se editan los datos comerciales, no el periodo ni el tipo: sus limites
+// mantienen la continuidad del calendario. Las reservas guardan su propio precio.
+const actualizar = async (id, datos = {}, actorEmployeeId = 1) => {
+  const rateId = toId(id);
+  if (!rateId) throw invalido('El identificador de la tarifa no es válido.');
+  return prisma.$transaction(async (tx) => {
+    const filas = await tx.$queryRaw`SELECT * FROM room_type_rate WHERE rate_id = ${rateId} FOR UPDATE`;
+    if (!filas.length) throw noEncontrado('La tarifa no existe.');
+    const actual = filas[0];
+    if (actual.valid_to && actual.valid_to.toISOString().slice(0, 10) <= fechaLocalHoy()) {
+      throw conflicto('La tarifa ya finalizó y se conserva como historial. Registrá una nueva tarifa.');
+    }
+    if ((datos.room_type_id !== undefined && Number(datos.room_type_id) !== actual.room_type_id)
+      || (datos.valid_from !== undefined && fechaValida(datos.valid_from).text !== actual.valid_from.toISOString().slice(0, 10))
+      || datos.valid_to !== undefined) throw invalido('El tipo y el período se conservan. Para otro período, registrá una nueva tarifa.');
+    const precio = datos.base_price === undefined ? Number(actual.base_price) : Number(datos.base_price);
+    if (!Number.isFinite(precio) || precio <= 0) throw invalido('El precio debe ser un número mayor que cero.');
+    const moneda = datos.currency === undefined ? actual.currency : String(datos.currency).trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(moneda)) throw invalido('La moneda debe tener exactamente 3 letras.');
+    const temporada = datos.season_name === undefined ? actual.season_name : String(datos.season_name).toUpperCase();
+    if (!TEMPORADAS.has(temporada)) throw invalido('Elegí una temporada general, alta, baja o especial.');
+    const motivo = datos.reason === undefined ? actual.reason : toText(datos.reason);
+    if (motivo && motivo.length > 255) throw invalido('El motivo no puede superar 255 caracteres.');
+    if (datos.active !== undefined && typeof datos.active !== 'boolean') throw invalido('El estado debe ser verdadero o falso.');
+    const activo = datos.active === undefined ? actual.active : datos.active;
+    const empleadoId = toId(actorEmployeeId);
+    const empleado = empleadoId && await tx.employees.findUnique({ where: { employees_id: empleadoId } });
+    if (!empleado?.employees_state) throw invalido('El usuario responsable no existe o está inactivo.');
+    if (activo) {
+      const tipo = await tx.room_type.findUnique({ where: { room_type_id: actual.room_type_id } });
+      if (!tipo?.room_type_state) throw conflicto('No se puede activar una tarifa de un tipo de habitación inactivo.');
+    }
+    await tx.$executeRaw`UPDATE room_type_rate SET base_price = ${precio}, currency = ${moneda},
+      season_name = ${temporada}, reason = ${motivo}, active = ${activo}, employees_id = ${empleadoId}
+      WHERE rate_id = ${rateId}`;
+    const lista = await tx.$queryRaw`${Prisma.raw(PRECIO_SQL)} WHERE rr.rate_id = ${rateId}`;
+    return presentarTarifa(lista[0]);
+  });
+};
+
+const historial = async (id) => {
+  await obtener(id);
+  return prisma.$queryRaw`SELECT h.history_id, h.changed_at, h.before_data, h.after_data,
+    e.employees_name, e.employees_lastname FROM room_type_rate_history h
+    JOIN employees e ON e.employees_id = h.employees_id
+    WHERE h.rate_id = ${toId(id)} ORDER BY h.history_id DESC`;
+};
+
+module.exports = { listar, obtener, crear, actualizar, historial };

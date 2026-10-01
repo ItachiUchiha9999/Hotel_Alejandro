@@ -45,7 +45,23 @@ const crear = asyncHandler(async (req, res) => {
   });
 });
 
+const actualizar = asyncHandler(async (req, res) => {
+  const data = await service.actualizar(req.params.id, req.body, actor(req, req.body));
+  res.json({ ok: true, data, message: 'Tarifa actualizada correctamente.' });
+});
+const cambiarEstado = asyncHandler(async (req, res) => {
+  if (typeof req.body.active !== 'boolean') {
+    return res.status(400).json({ ok: false, message: 'Indicá el estado activo o inactivo.' });
+  }
+  const data = await service.actualizar(req.params.id, { active: req.body.active }, actor(req, req.body));
+  res.json({ ok: true, data });
+});
+const historial = asyncHandler(async (req, res) => {
+  res.json({ ok: true, data: await service.historial(req.params.id) });
+});
+
 module.exports = {
+  actualizar, cambiarEstado, historial,
   listar,
   obtener,
   crear,

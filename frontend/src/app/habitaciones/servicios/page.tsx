@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, EmptyState, Field, FieldGrid, InfoBox, Input, Select, Table, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
@@ -60,37 +60,36 @@ export default function ServiciosHabitacionPage() {
   const totalPendiente = useMemo(() => cargos.filter((c) => !c.paid_at).reduce((sum, c) => sum + Number(c.total_amount), 0), [cargos]);
   const serviciosFiltrados = useMemo(() => filtroCategoria === "TODAS" ? servicios : servicios.filter((s) => s.category === filtroCategoria), [servicios, filtroCategoria]);
 
-  const cargarCatalogos = async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      const [lista, ocupadas, arts, deps, metodos] = await Promise.all([
+  const cargarCatalogos = useCallback(() =>
+    Promise.all([
         api.get<Servicio[]>("/servicios-habitacion/catalogo"),
         api.get<Estadia[]>("/servicios-habitacion/habitaciones-ocupadas"),
         api.get<Articulo[]>("/articulos?activos=true"),
         api.get<Deposito[]>("/depositos?activos=true"),
         api.get<MetodoPago[]>("/metodos-pago?activos=true"),
-      ]);
+    ]).then(([lista, ocupadas, arts, deps, metodos]) => {
       setServicios(lista);
       setEstadias(ocupadas);
+      setCargos([]);
       setArticulos(arts.filter((a) => a.article_state)); setDepositos(deps.filter((d) => d.deposit_state));
       setMetodosPago(metodos.filter((m) => m.active));
       setRoomId((actual) => ocupadas.some((e) => String(e.room_id) === actual) ? actual : String(ocupadas[0]?.room_id ?? ""));
-    } catch (err) {
+    }).catch((err) => {
       setError(err instanceof ApiError ? err.message : "No se pudieron cargar los servicios y habitaciones ocupadas.");
-    } finally {
+    }).finally(() => {
       setCargando(false);
-    }
-  };
+    }), []);
 
-  useEffect(() => { void cargarCatalogos(); }, []);
+  useEffect(() => { void cargarCatalogos(); }, [cargarCatalogos]);
 
   useEffect(() => {
-    if (!estadiaActual) { setCargos([]); return; }
-    api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos?reservationId=${estadiaActual.reservation_id}`)
-      .then(setCargos)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "No se pudieron cargar los cargos de la habitación."));
-  }, [estadiaActual?.room_id, estadiaActual?.reservation_id]);
+    if (!estadiaActual) return;
+    let vigente = true;
+    api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`)
+      .then((lista) => { if (vigente) setCargos(lista); })
+      .catch((err) => { if (vigente) setError(err instanceof ApiError ? err.message : "No se pudieron cargar los cargos de la habitación."); });
+    return () => { vigente = false; };
+  }, [estadiaActual]);
 
   const limpiarFormulario = () => { setEditando(null); setNombre(""); setDescripcion(""); setPrecio(""); setCategoria("OTROS"); setActivo(true); setArticuloMinibar(""); setDepositoMinibar(""); };
   const editar = (servicio: Servicio) => {
@@ -126,11 +125,11 @@ export default function ServiciosHabitacionPage() {
     setError(null); setAviso(null); setGuardando(true);
     try {
       await api.post(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`, {
-        reservationId: estadiaActual.reservation_id, serviceId: Number(serviceId), quantity: Number(cantidad),
+        expectedReservationId: estadiaActual.reservation_id, serviceId: Number(serviceId), quantity: Number(cantidad),
         employeeId: Number(window.localStorage.getItem("employeeId") ?? 1),
       });
       setAviso(`Consumo agregado a la habitación ${estadiaActual.room_number}.`); setCantidad("1");
-      setCargos(await api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos?reservationId=${estadiaActual.reservation_id}`));
+      setCargos(await api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`));
     } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo cargar el consumo."); }
     finally { setGuardando(false); }
   };
@@ -145,7 +144,7 @@ export default function ServiciosHabitacionPage() {
       if (!cargo || !metodo) { setError("Elegí un medio de pago."); return; }
       if (metodo.requires_reference && !referenciaPago.trim()) { setError("Este medio de pago requiere número de referencia."); return; }
       await api.patch(`/servicios-habitacion/cargos/${cargo.charge_id}/cobrar`, { paymentMethodId: Number(metodoPagoId), paymentReference: referenciaPago.trim() || undefined, employeeId: Number(window.localStorage.getItem("employeeId") ?? 1) });
-      setCargos(await api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos?reservationId=${estadiaActual.reservation_id}`));
+      setCargos(await api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`));
       setAviso("Cargo cobrado y medio de pago registrado."); setCargoPorCobrar(null); setReferenciaPago("");
     } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo actualizar el cobro."); }
   };
@@ -190,7 +189,7 @@ export default function ServiciosHabitacionPage() {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-serif text-lg">Cargos por habitación</h2><p className="text-sm text-carbon/55">Los consumos se cargan al cuarto y quedan en el folio de la estadía activa para el check-out.</p></div>{estadiaActual && <Badge tono="info">Pendiente de cobro: {money(totalPendiente)}</Badge>}</div>
       {estadias.length === 0 ? <EmptyState titulo="No hay habitaciones ocupadas" descripcion="Los consumos se habilitan durante una estadía con check-in realizado." /> : <>
         <form onSubmit={cargarConsumo} className="mb-5 grid gap-4 md:grid-cols-4 md:items-end">
-          <Field label="Habitación ocupada" htmlFor="cargo-habitacion" requerido><Select id="cargo-habitacion" value={roomId} onChange={(e) => setRoomId(e.target.value)}><option value="">Elegí habitación</option>{estadias.map((e) => <option key={e.reservation_id} value={e.room_id}>Hab. {e.room_number} · {e.guest_last_name}, {e.guest_first_name}</option>)}</Select></Field>
+          <Field label="Habitación ocupada" htmlFor="cargo-habitacion" requerido><Select id="cargo-habitacion" value={roomId} disabled={guardando || cargoPorCobrar !== null} onChange={(e) => { setRoomId(e.target.value); setCargos([]); }}><option value="">Elegí habitación</option>{estadias.map((e) => <option key={e.reservation_id} value={e.room_id}>Hab. {e.room_number} · {e.guest_last_name}, {e.guest_first_name}</option>)}</Select></Field>
           <Field label="Servicio" htmlFor="cargo-servicio" requerido><Select id="cargo-servicio" value={serviceId} onChange={(e) => setServiceId(e.target.value)} required><option value="">Elegí servicio</option>{servicios.filter((s) => s.active).map((s) => <option key={s.service_id} value={s.service_id}>{etiquetaCategoria(s.category)} · {s.service_name} · {money(s.current_price, s.currency)}</option>)}</Select></Field>
           <Field label="Cantidad" htmlFor="cargo-cantidad" requerido><Input id="cargo-cantidad" type="number" min="1" max="100" step="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required /></Field>
           <Button type="submit" cargando={guardando} disabled={!estadiaActual || !serviceId}>Cargar a habitación</Button>

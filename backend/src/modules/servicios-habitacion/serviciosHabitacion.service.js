@@ -131,17 +131,24 @@ const habitacionesOcupadas = () => prisma.$queryRaw`
 const validarEstadiaActiva = async (tx, roomId, reservationId) => {
   const filas = await tx.$queryRaw`
     SELECT reservation_id FROM "reservation"
-    WHERE reservation_id = ${reservationId} AND room_id = ${roomId} AND reservation_status = 'IN_HOUSE'
+    WHERE room_id = ${roomId} AND reservation_status = 'IN_HOUSE'
     FOR UPDATE`;
   if (!filas.length) throw conflicto('Solo se pueden cargar servicios a la habitación ocupada durante una estadía activa.');
+  if (filas.length !== 1) throw conflicto('La habitación tiene más de una estadía activa. Revisá sus reservas antes de cargar servicios.');
+  const actual = filas[0].reservation_id;
+  if (reservationId != null && reservationId !== actual) {
+    throw conflicto('La estadía de la habitación cambió. Actualizá la lista de habitaciones antes de continuar.');
+  }
+  return actual;
 };
 
 const listarCargos = async (roomParam, reservationParam) => {
   const roomId = toId(roomParam);
-  const reservationId = toId(reservationParam);
-  if (!roomId || !reservationId) throw invalido('Elegí una habitación y estadía válidas.');
-  await validarEstadiaActiva(prisma, roomId, reservationId);
-  return prisma.$queryRaw`
+  const esperada = reservationParam === undefined ? null : toId(reservationParam);
+  if (!roomId || (reservationParam !== undefined && !esperada)) throw invalido('Elegí una habitación y estadía válidas.');
+  return prisma.$transaction(async (tx) => {
+    const reservationId = await validarEstadiaActiva(tx, roomId, esperada);
+    return tx.$queryRaw`
     SELECT c.charge_id, c.reservation_id, c.room_id, c.service_id, c.service_name,
            c.quantity, c.unit_price, c.total_amount, c.charged_at, c.paid_at,
            c.payment_reference, pm.payment_method,
@@ -151,19 +158,21 @@ const listarCargos = async (roomParam, reservationParam) => {
     LEFT JOIN "payment_method" pm ON pm.payment_method_id = c.payment_method_id
     WHERE c.room_id = ${roomId} AND c.reservation_id = ${reservationId}
     ORDER BY c.charged_at DESC, c.charge_id DESC`;
+  });
 };
 
-const cargarCargo = async (roomParam, { reservationId: reservationParam, serviceId: serviceParam, quantity = 1 } = {}, employeeParam) => {
+const cargarCargo = async (roomParam, { reservationId: legacyReservation, expectedReservationId, serviceId: serviceParam, quantity = 1 } = {}, employeeParam) => {
   const roomId = toId(roomParam);
-  const reservationId = toId(reservationParam);
+  const reservationParam = expectedReservationId ?? legacyReservation;
+  const esperada = reservationParam === undefined ? null : toId(reservationParam);
   const serviceId = toId(serviceParam);
   const cantidad = toPositive(quantity);
-  if (!roomId || !reservationId || !serviceId) throw invalido('Elegí una habitación, estadía y servicio válidos.');
+  if (!roomId || !serviceId || (reservationParam !== undefined && !esperada)) throw invalido('Elegí una habitación y servicio válidos.');
   if (!cantidad || cantidad > 100) throw invalido('La cantidad debe ser un entero entre 1 y 100.');
   const employeeId = await empleadoValido(prisma, employeeParam);
 
   return prisma.$transaction(async (tx) => {
-    await validarEstadiaActiva(tx, roomId, reservationId);
+    const reservationId = await validarEstadiaActiva(tx, roomId, esperada);
     const servicios = await tx.$queryRaw`
       SELECT service_id, category, service_name, current_price, inventory_article_id, inventory_deposit_id FROM "room_service_catalog"
       WHERE service_id = ${serviceId} AND active = TRUE`;

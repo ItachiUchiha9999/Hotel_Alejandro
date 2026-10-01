@@ -39,6 +39,11 @@ stock y aplicar el criterio de disponibilidad durante limpieza, ejecutá
 Para registrar pagos parciales o totales de alojamiento, ejecutá
 `psql -U postgres -d sistema_hotelero_db -f database/15_cobros_alojamiento.sql`.
 
+Para habilitar edición, activación/desactivación e historial de tarifas,
+ejecutá `psql -U postgres -d sistema_hotelero_db -f database/17_tarifas_edicion_estado.sql`
+y después `npx prisma generate` desde `backend`. La migración es incremental;
+conserva las tarifas, reservas y datos existentes.
+
 Los scripts de `database/historico/` quedaron cubiertos por el principal y no
 hay que ejecutarlos: el detalle está en `database/historico/LEEME.md`.
 

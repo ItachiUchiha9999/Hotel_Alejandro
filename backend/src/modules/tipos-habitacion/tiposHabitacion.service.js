@@ -19,7 +19,12 @@ const CON_CONTEO = {
     },
   },
   rates: {
-    where: { valid_to: null },
+    get where() {
+      const today = new Date(new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date()) + 'T00:00:00Z');
+      return { active: true, valid_from: { lte: today }, OR: [{ valid_to: null }, { valid_to: { gt: today } }] };
+    },
     orderBy: { valid_from: 'desc' },
     take: 1,
     select: { rate_id: true, base_price: true, currency: true, valid_from: true, reason: true },

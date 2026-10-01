@@ -513,6 +513,7 @@ model room_type_rate {
   valid_from DateTime @default(now()) @db.Date
   valid_to DateTime? @db.Date
   season_name String @default("GENERAL") @db.VarChar(60)
+  active Boolean @default(true)
   reason String? @db.VarChar(255)
   employees_id Int
   creation_date DateTime @default(now()) @db.Timestamptz(6)

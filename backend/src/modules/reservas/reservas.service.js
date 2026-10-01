@@ -34,14 +34,14 @@ const validarSolapamiento = async (tx, roomId, ingreso, egreso, excluirId = null
     SELECT reservation_id FROM "reservation"
     WHERE room_id = ${roomId} AND reservation_status IN ('PENDIENTE', 'CONFIRMADA', 'IN_HOUSE')
       AND (reservation_status <> 'PENDIENTE' OR pending_expires_at IS NULL OR pending_expires_at > CURRENT_TIMESTAMP)
-      AND check_in_date < ${egreso} AND check_out_date > ${ingreso}
+      AND check_in_date < ${egreso.toISOString().slice(0, 10)}::date AND check_out_date > ${ingreso.toISOString().slice(0, 10)}::date
       ${excluirId ? Prisma.sql`AND reservation_id <> ${excluirId}` : Prisma.empty}
     LIMIT 1`;
   if (rows.length) throw conflicto('La habitación ya está ocupada para esas fechas.');
   const holds = await tx.$queryRaw`
     SELECT hold_id FROM "room_hold"
     WHERE room_id = ${roomId} AND released = FALSE AND expires_at > CURRENT_TIMESTAMP
-      AND check_in_date < ${egreso} AND check_out_date > ${ingreso}
+      AND check_in_date < ${egreso.toISOString().slice(0, 10)}::date AND check_out_date > ${ingreso.toISOString().slice(0, 10)}::date
     LIMIT 1`;
   if (holds.length) throw conflicto('La habitación está retenida temporalmente para esas fechas. Esperá a que venza o liberá la retención.');
 };
@@ -56,6 +56,7 @@ const obtenerHabitacionYTarifa = async (tx, roomId, ingreso) => {
         include: {
           rates: {
             where: {
+              active: true,
               valid_from: { lte: ingreso },
               OR: [{ valid_to: null }, { valid_to: { gt: ingreso } }],
             },
@@ -77,19 +78,55 @@ const incluir = {
   room: { select: { room_id: true, room_number: true } },
 };
 
-const crear = async ({ guestId, roomId, checkIn, checkOut, status = 'CONFIRMADA', employeeId, adults = 1, children = 0 }) => {
-  const guest = asId(guestId, 'El perfil de huésped');
+const validarNuevoCliente = (datos) => {
+  if (!datos || typeof datos !== 'object' || Array.isArray(datos)) throw invalido('Completá los datos del nuevo cliente.');
+  const texto = (campo, nombre, maximo, obligatorio = true) => {
+    const valor = datos[campo];
+    if (valor != null && typeof valor !== 'string') throw invalido(`${nombre} no es válido.`);
+    const limpio = (valor || '').trim();
+    if ((obligatorio && !limpio) || limpio.length > maximo) throw invalido(`${nombre} es obligatorio y admite hasta ${maximo} caracteres.`);
+    return limpio || null;
+  };
+  const document_type = texto('document_type', 'El tipo de documento', 20).toUpperCase();
+  if (!['DNI', 'PASAPORTE', 'CEDULA', 'LC', 'LE'].includes(document_type)) throw invalido('El tipo de documento no es válido.');
+  const document_number = texto('document_number', 'El número de documento', 30).toUpperCase();
+  const first_name = texto('first_name', 'El nombre', 100);
+  const last_name = texto('last_name', 'El apellido', 100);
+  const email = texto('email', 'El correo', 150, false);
+  const phone = texto('phone', 'El teléfono', 30, false);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalido('El correo electrónico no es válido.');
+  return { document_type, document_number, first_name, last_name, email, phone };
+};
+
+const crear = async ({ guestId, newGuest, roomId, checkIn, checkOut, status = 'CONFIRMADA', employeeId, adults = 1, children = 0 }) => {
+  const esNuevo = newGuest !== undefined && newGuest !== null;
+  if (esNuevo && guestId != null && guestId !== '') throw invalido('Elegí un cliente existente o uno nuevo, no ambos.');
+  const datosCliente = esNuevo ? validarNuevoCliente(newGuest) : null;
+  const guest = esNuevo ? null : asId(guestId, 'El perfil de huésped');
   const roomIdNumber = asId(roomId, 'La habitación');
   const empleado = asId(employeeId, 'El usuario');
   const ingreso = asDate(checkIn, 'La fecha de ingreso');
   const egreso = asDate(checkOut, 'La fecha de egreso');
   validarRango(ingreso, egreso);
   if (!ESTADOS_EDITABLES.includes(status)) throw invalido('El estado inicial debe ser PENDIENTE o CONFIRMADA.');
-  return prisma.$transaction(async (tx) => {
+  try {
+  return await prisma.$transaction(async (tx) => {
     await expirarPendientes(tx);
     await validarEmpleado(tx, empleado);
     await liberarVencidas(tx);
-    const perfil = await tx.guest.findUnique({ where: { guest_id: guest } });
+    let perfil;
+    if (datosCliente) {
+      const existente = await tx.guest.findFirst({ where: {
+        document_type: { equals: datosCliente.document_type, mode: 'insensitive' },
+        document_number: { equals: datosCliente.document_number, mode: 'insensitive' },
+      } });
+      if (existente) throw conflicto(existente.guest_state
+        ? `Ya existe el cliente ${existente.first_name} ${existente.last_name} con ese documento. Seleccionalo en Cliente existente.`
+        : 'Ese documento pertenece a un cliente inactivo. Reactivá su perfil antes de reservar.');
+      perfil = await tx.guest.create({ data: datosCliente });
+    } else {
+      perfil = await tx.guest.findUnique({ where: { guest_id: guest } });
+    }
     if (!perfil || !perfil.guest_state) throw noEncontrado('El perfil de huésped no existe o está inactivo.');
     const room = await obtenerHabitacionYTarifa(tx, roomIdNumber, ingreso);
     await validarSolapamiento(tx, roomIdNumber, ingreso, egreso);
@@ -102,12 +139,19 @@ const crear = async ({ guestId, roomId, checkIn, checkOut, status = 'CONFIRMADA'
         adults, children, price_per_night, rate_id, reservation_status,
         reservation_source, employees_id, pending_expires_at
       ) VALUES (
-        '', ${guest}, ${roomIdNumber}, ${ingreso}, ${egreso},
+        '', ${perfil.guest_id}, ${roomIdNumber}, ${checkIn}::date, ${checkOut}::date,
         ${Number(adults)}, ${Number(children)}, ${room.base_price}, ${room.rate_id}, ${status},
         'RECEPCION', ${empleado}, ${vence}
       ) RETURNING reservation_id`;
     return tx.reservation.findUnique({ where: { reservation_id: insertada.reservation_id }, include: incluir });
   }, { isolationLevel: 'Serializable' });
+  } catch (error) {
+    if (error.code === 'P2002' && esNuevo) throw conflicto('Ya existe un cliente con ese documento. Buscalo en Cliente existente.');
+    if (error.code === 'P2034' || (error.code === 'P2010' && ['40001', '40P01'].includes(error.meta?.code))) {
+      throw conflicto('Los datos cambiaron mientras guardabas. Volvé a consultar e intentá nuevamente.');
+    }
+    throw error;
+  }
 };
 
 const modificar = async (id, datos, employeeId) => {
@@ -251,7 +295,17 @@ const checkIn = async (id, { employeeId, actualAdults, actualChildren, observati
     if (!Number.isInteger(adultosFinales) || adultosFinales < 1 || !Number.isInteger(menoresFinales) || menoresFinales < 0) {
       throw invalido('La cantidad de adultos y menores no es válida.');
     }
+    const habitacion = await tx.room.findUnique({
+      where: { room_id: reserva.room_id }, include: { room_type: true },
+    });
+    if (!habitacion || !habitacion.active) throw conflicto('La habitación no existe o está inactiva.');
+    const tipo = habitacion.room_type;
+    if (adultosFinales + menoresFinales > tipo.room_type_max_capacity
+      || (tipo.max_adults != null && adultosFinales > tipo.max_adults)) {
+      throw invalido('Los huéspedes que ingresan superan la capacidad o el máximo de adultos de la habitación.');
+    }
     const huespedes = [{ ...reserva.guest, guest_role: 'TITULAR', person_type: 'ADULTO' }, ...guests.map((guest) => {
+      if (!guest || typeof guest !== 'object' || Array.isArray(guest)) throw invalido('Los datos del huésped no son válidos.');
       const personType = String(guest.personType ?? 'ADULTO').trim().toUpperCase();
       const documentType = String(guest.documentType ?? '').trim().toUpperCase();
       const documentNumber = String(guest.documentNumber ?? '').trim();
@@ -259,6 +313,9 @@ const checkIn = async (id, { employeeId, actualAdults, actualChildren, observati
       const lastName = String(guest.lastName ?? '').trim();
       if (!['ADULTO', 'MENOR'].includes(personType) || !['DNI', 'PASAPORTE', 'CEDULA', 'LC', 'LE'].includes(documentType) || !documentNumber || !firstName || !lastName) {
         throw invalido('Cada huésped adicional requiere nombre, apellido y documento válido.');
+      }
+      if (documentNumber.length > 30 || firstName.length > 100 || lastName.length > 100) {
+        throw invalido('El documento admite hasta 30 caracteres y el nombre y apellido hasta 100 cada uno.');
       }
       return { document_type: documentType, document_number: documentNumber, first_name: firstName, last_name: lastName, guest_role: 'ACOMPANANTE', person_type: personType };
     })];

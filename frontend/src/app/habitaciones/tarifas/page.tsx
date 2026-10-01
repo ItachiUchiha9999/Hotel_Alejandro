@@ -38,6 +38,7 @@ import Link from "next/link";
 
 interface Tarifa {
     rate_id: number;
+    active: boolean;
     room_type_id: number;
     base_price: string | number;
     currency: string;
@@ -144,7 +145,13 @@ interface ServicioPrecio {
         TipoHabitacion[]
     >([]);
 
+    const [editando, setEditando] = useState<Tarifa | null>(null);
+    const [cambiando, setCambiando] = useState<number | null>(null);
+    const [historial, setHistorial] = useState<Array<{history_id: number; changed_at: string; before_data: Tarifa; after_data: Tarifa; employees_name: string; employees_lastname: string}> | null>(null);
     const [servicios, setServicios] = useState<ServicioPrecio[]>([]);
+    const [servicioEditando, setServicioEditando] = useState<ServicioPrecio | null>(null);
+    const [errorServicio, setErrorServicio] = useState<string | null>(null);
+    const [guardandoServicio, setGuardandoServicio] = useState(false);
 
     const [
         cargando,
@@ -229,14 +236,6 @@ interface ServicioPrecio {
         useCallback(
         async () => {
             try {
-            setCargando(
-                true
-            );
-
-            setError(
-                null
-            );
-
             const [
                 tarifasData,
                 tiposData,
@@ -267,6 +266,7 @@ interface ServicioPrecio {
                 tiposData
             );
             setServicios(serviciosData);
+            setError(null);
             } catch (err) {
             setError(
                 err instanceof
@@ -284,6 +284,8 @@ interface ServicioPrecio {
         );
 
     useEffect(() => {
+        // cargar actualiza el estado después de recibir las respuestas HTTP.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         cargar();
     }, [cargar]);
 
@@ -293,14 +295,14 @@ interface ServicioPrecio {
         useMemo(
         () =>
             tarifas.filter(
-            (tarifa) => tarifa.valid_from.slice(0, 10) <= hoy &&
+            (tarifa) => tarifa.active && tarifa.valid_from.slice(0, 10) <= hoy &&
                 (!tarifa.valid_to || tarifa.valid_to.slice(0, 10) > hoy)
             ),
         [tarifas, hoy]
         );
 
     const tarifasFuturas = useMemo(
-        () => tarifas.filter((tarifa) => tarifa.valid_from.slice(0, 10) > hoy)
+        () => tarifas.filter((tarifa) => tarifa.active && tarifa.valid_from.slice(0, 10) > hoy)
             .sort((a, b) => a.valid_from.localeCompare(b.valid_from)),
         [tarifas, hoy]
     );
@@ -324,6 +326,8 @@ interface ServicioPrecio {
 
             const empieza = tarifa.valid_from.slice(0, 10);
             const termina = tarifa.valid_to?.slice(0, 10) ?? null;
+            if (filtroEstado === "INACTIVAS" && tarifa.active) return false;
+            if (["VIGENTES", "FUTURAS"].includes(filtroEstado) && !tarifa.active) return false;
             if (filtroEstado === "VIGENTES" && !(empieza <= hoy && (!termina || termina > hoy))) return false;
             if (filtroEstado === "FUTURAS" && empieza <= hoy) return false;
             if (filtroEstado === "HISTORICAS" && (!termina || termina > hoy)) return false;
@@ -342,6 +346,7 @@ interface ServicioPrecio {
      * Limpia formulario.
      */
     function limpiarFormulario() {
+        setEditando(null);
         setTipoId("");
         setPrecio("");
         setMoneda("ARS");
@@ -429,31 +434,11 @@ interface ServicioPrecio {
             true
         );
 
-        const nuevaTarifa =
-            await api.post<Tarifa>(
-            "/tarifas",
-            {
-                room_type_id:
-                Number(
-                    tipoId
-                ),
-
-                base_price:
-                precioNumero,
-
-                currency:
-                moneda,
-
-                season_name: temporada,
-
-                valid_from:
-                fechaDesde,
-
-                reason:
-                motivo.trim() ||
-                null,
-            }
-            );
+        const payload = { room_type_id: Number(tipoId), base_price: precioNumero,
+            currency: moneda, season_name: temporada, valid_from: fechaDesde, reason: motivo.trim() || null };
+        const nuevaTarifa = editando
+            ? await api.put<Tarifa>(`/tarifas/${editando.rate_id}`, payload)
+            : await api.post<Tarifa>("/tarifas", payload);
 
         setAviso(
             `La nueva tarifa de ${nuevaTarifa.room_type.room_type_name} se registró correctamente.`
@@ -478,6 +463,50 @@ interface ServicioPrecio {
             false
         );
         }
+    }
+
+    function editar(tarifa: Tarifa) {
+        setEditando(tarifa); setTipoId(String(tarifa.room_type_id));
+        setPrecio(String(tarifa.base_price)); setMoneda(tarifa.currency);
+        setTemporada(tarifa.season_name); setFechaDesde(tarifa.valid_from.slice(0, 10));
+        setMotivo(tarifa.reason || ""); setError(null); setAviso(null); setMostrarFormulario(true);
+    }
+    async function cambiarEstado(tarifa: Tarifa) {
+        if (!window.confirm(tarifa.active
+            ? "¿Desactivar esta tarifa? No se ofrecerá para nuevas reservas durante su período. Las reservas existentes conservan su precio."
+            : "¿Activar esta tarifa para nuevas reservas dentro de su período?")) return;
+        setCambiando(tarifa.rate_id); setError(null);
+        try {
+            await api.patch(`/tarifas/${tarifa.rate_id}/estado`, { active: !tarifa.active });
+            await cargar(); setAviso(tarifa.active ? "Tarifa desactivada." : "Tarifa activada.");
+        } catch (err) { setError(err instanceof Error ? err.message : "No se pudo cambiar el estado."); }
+        finally { setCambiando(null); }
+    }
+    async function verHistorial(tarifa: Tarifa) {
+        setError(null);
+        try { setHistorial(await api.get<NonNullable<typeof historial>>(`/tarifas/${tarifa.rate_id}/cambios`)); }
+        catch (err) { setError(err instanceof Error ? err.message : "No se pudo consultar el historial."); }
+    }
+
+    async function guardarServicio(event: FormEvent) {
+        event.preventDefault();
+        if (!servicioEditando || guardandoServicio) return;
+        setErrorServicio(null);
+        if (!servicioEditando.service_name.trim() || !Number.isFinite(Number(servicioEditando.current_price)) || Number(servicioEditando.current_price) <= 0) {
+            setErrorServicio('Completá el nombre y un precio mayor que cero.'); return;
+        }
+        setGuardandoServicio(true);
+        try {
+            const actualizado = await api.patch<ServicioPrecio>(`/servicios-habitacion/catalogo/${servicioEditando.service_id}`, {
+                service_name: servicioEditando.service_name.trim(), current_price: Number(servicioEditando.current_price),
+                active: servicioEditando.active,
+                employeeId: Number(window.localStorage.getItem('employeeId') ?? 1),
+            });
+            setServicios(actuales => actuales.map(s => s.service_id === actualizado.service_id ? actualizado : s));
+            setServicioEditando(null);
+            setAviso('Servicio actualizado. Los consumos ya registrados conservan su precio.');
+        } catch (err) { setErrorServicio(err instanceof Error ? err.message : 'No se pudo guardar el servicio.'); }
+        finally { setGuardandoServicio(false); }
     }
 
     return (
@@ -643,6 +672,7 @@ interface ServicioPrecio {
                 }
                 >
                 <option value="VIGENTES">Vigentes hoy</option>
+                <option value="INACTIVAS">Inactivas</option>
                 <option value="FUTURAS">Próximas tarifas</option>
 
                 <option value="HISTORICAS">
@@ -701,6 +731,7 @@ interface ServicioPrecio {
                     <th className="px-4 py-3">
                         Responsable
                     </th>
+                    <th className="px-4 py-3">Acciones</th>
                     </tr>
                 </thead>
 
@@ -711,8 +742,8 @@ interface ServicioPrecio {
                     ) => {
                         const empieza = tarifa.valid_from.slice(0, 10);
                         const termina = tarifa.valid_to?.slice(0, 10) ?? null;
-                        const vigente = empieza <= hoy && (!termina || termina > hoy);
-                        const futura = empieza > hoy;
+                        const vigente = tarifa.active && empieza <= hoy && (!termina || termina > hoy);
+                        const futura = tarifa.active && empieza > hoy;
 
                         return (
                         <tr
@@ -762,7 +793,7 @@ interface ServicioPrecio {
                                     : "rounded-full bg-carbon/10 px-3 py-1 text-xs font-semibold text-carbon/60"
                                 }
                             >
-                                {vigente ? "Vigente hoy" : futura ? "Programada" : "Finalizada"}
+                                {!tarifa.active ? "Inactiva" : vigente ? "Vigente hoy" : futura ? "Programada" : "Finalizada"}
                             </span>
                             </td>
 
@@ -783,6 +814,17 @@ interface ServicioPrecio {
                                 .employees_lastname
                             }
                             </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-wrap gap-2">
+                                {(!termina || termina > hoy) && <>
+                                  <button type="button" className="rounded border border-line px-3 py-1" onClick={() => editar(tarifa)}>Editar</button>
+                                  <button type="button" className="rounded border border-line px-3 py-1" disabled={cambiando !== null} onClick={() => cambiarEstado(tarifa)}>
+                                    {cambiando === tarifa.rate_id ? "Guardando..." : tarifa.active ? "Desactivar" : "Activar"}
+                                  </button>
+                                </>}
+                                <button type="button" className="rounded border border-line px-3 py-1" onClick={() => verHistorial(tarifa)}>Ver cambios</button>
+                              </div>
+                            </td>
                         </tr>
                         );
                     }
@@ -794,19 +836,22 @@ interface ServicioPrecio {
         </Card>
 
         <Card className="mt-6" titulo="Servicios y consumos" descripcion="Precios actuales del catálogo. Cada cargo de habitación conserva el precio aplicado al momento de registrarlo.">
-            {servicios.filter((servicio) => servicio.active).length === 0 ? (
-                <EmptyState titulo="No hay servicios activos" descripcion="Agregá servicios o consumos desde su catálogo." />
+            {servicios.length === 0 ? (
+                <EmptyState titulo="No hay servicios" descripcion="Agregá servicios o consumos desde su catálogo." />
             ) : (
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-140 text-left text-sm">
                         <thead><tr className="border-b border-line text-xs uppercase tracking-wide text-carbon/50">
                             <th className="px-4 py-3">Servicio o consumo</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Precio actual</th>
+                            <th className="px-4 py-3">Estado</th><th className="px-4 py-3">Acciones</th>
                         </tr></thead>
-                        <tbody>{servicios.filter((servicio) => servicio.active).map((servicio) => (
+                        <tbody>{servicios.map((servicio) => (
                             <tr key={servicio.service_id} className="border-b border-line last:border-0">
                                 <td className="px-4 py-3 font-medium text-carbon">{servicio.service_name}</td>
                                 <td className="px-4 py-3 text-carbon/65">{servicio.category.replaceAll("_", " ")}</td>
                                 <td className="px-4 py-3 text-right font-semibold tabular-nums text-carbon">{formatearPrecio(servicio.current_price, servicio.currency)}</td>
+                                <td className="px-4 py-3">{servicio.active ? 'Activo' : 'Inactivo'}</td>
+                                <td className="px-4 py-3"><button type="button" className="rounded border border-line px-3 py-1" onClick={() => { setServicioEditando({ ...servicio }); setErrorServicio(null); }}>Editar</button></td>
                             </tr>
                         ))}</tbody>
                     </table>
@@ -817,6 +862,37 @@ interface ServicioPrecio {
             </div>
         </Card>
 
+        {servicioEditando && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div role="dialog" aria-modal="true" aria-labelledby="editar-servicio-titulo" className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+                <h2 id="editar-servicio-titulo" className="mb-4 text-xl font-semibold">Editar servicio o consumo</h2>
+                <form onSubmit={guardarServicio} className="space-y-4">
+                    {errorServicio && <p role="alert" className="text-sm text-red-700">{errorServicio}</p>}
+                    <label className="block text-sm">Nombre<Input autoFocus value={servicioEditando.service_name} required maxLength={100} disabled={guardandoServicio} onChange={e => setServicioEditando({ ...servicioEditando, service_name: e.target.value })} /></label>
+                    <label className="block text-sm">Precio ({servicioEditando.currency})<Input type="number" min="0.01" step="0.01" required value={servicioEditando.current_price} disabled={guardandoServicio} onChange={e => setServicioEditando({ ...servicioEditando, current_price: e.target.value })} /></label>
+                    <label className="block text-sm">Estado<Select value={String(servicioEditando.active)} disabled={guardandoServicio} onChange={e => setServicioEditando({ ...servicioEditando, active: e.target.value === 'true' })}><option value="true">Activo</option><option value="false">Inactivo</option></Select></label>
+                    <p className="text-sm text-carbon/65">El nuevo precio se aplica a futuros consumos. Los ya cargados conservan su importe.</p>
+                    <div className="flex justify-end gap-3">
+                        <button type="button" disabled={guardandoServicio} className="rounded border border-line px-4 py-2" onClick={() => setServicioEditando(null)}>Cancelar</button>
+                        <button type="submit" disabled={guardandoServicio} className="rounded bg-gold px-4 py-2 font-semibold">{guardandoServicio ? 'Guardando...' : 'Guardar cambios'}</button>
+                    </div>
+                </form>
+            </div>
+        </div>}
+
+        {historial !== null && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+          <div role="dialog" aria-modal="true" aria-label="Historial de cambios de tarifa" className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-6">
+            <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">Cambios de la tarifa</h2>
+              <button type="button" onClick={() => setHistorial(null)} className="rounded border px-3 py-1">Cerrar</button></div>
+            {!historial.length && <p className="mt-4">No hay modificaciones registradas.</p>}
+            {historial.map((item) => <div key={item.history_id} className="mt-4 border-t pt-3 text-sm">
+              <p>{new Date(item.changed_at).toLocaleString("es-AR")} · {item.employees_name} {item.employees_lastname}</p>
+              <p>Precio: {formatearPrecio(item.before_data.base_price, item.before_data.currency)} → {formatearPrecio(item.after_data.base_price, item.after_data.currency)}</p>
+              <p>Estado: {item.before_data.active ? "Activa" : "Inactiva"} → {item.after_data.active ? "Activa" : "Inactiva"}</p>
+              <p>Temporada: {item.before_data.season_name} → {item.after_data.season_name}</p>
+              <p>Motivo: {item.before_data.reason || "—"} → {item.after_data.reason || "—"}</p>
+            </div>)}
+          </div>
+        </div>}
         {/* MODAL NUEVA TARIFA */}
         {mostrarFormulario && (
             <div
@@ -837,8 +913,7 @@ interface ServicioPrecio {
                 <div className="flex items-start justify-between border-b border-line px-6 py-5">
                 <div>
                     <h2 className="text-xl font-semibold text-carbon">
-                    Registrar
-                    nueva tarifa
+                    {editando ? "Editar tarifa" : "Registrar nueva tarifa"}
                     </h2>
 
                     <p className="mt-1 text-sm text-carbon/60">
@@ -875,6 +950,7 @@ interface ServicioPrecio {
                 }
                 className="grid gap-5 p-6 md:grid-cols-2"
                 >
+                {error && <div role="alert" className="md:col-span-2 text-sm text-red-700">{error}</div>}
                 {/* Tipo */}
                 <div>
                     <label className="mb-2 block text-sm font-medium text-carbon">
@@ -883,6 +959,7 @@ interface ServicioPrecio {
                     </label>
 
                     <Select
+                    disabled={!!editando}
                     value={
                         tipoId
                     }
@@ -1002,6 +1079,7 @@ interface ServicioPrecio {
 
                     <Input
                     type="date"
+                    disabled={!!editando}
                     value={
                         fechaDesde
                     }
