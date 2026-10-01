@@ -77,7 +77,6 @@ export const MODULOS: ItemNavegacion[] = [
     ruta: "/reservas",
     hijos: [
       { nombre: "Listado de reservas", ruta: "/reservas" },
-      { nombre: "Nueva reserva", ruta: "/reservas/nueva" },
     ],
   },
 

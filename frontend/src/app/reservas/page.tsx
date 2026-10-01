@@ -115,6 +115,7 @@ export default function ReservasPage() {
 
   const [pestana, setPestana] = useState<FiltroPestana>("TODAS");
   const [busqueda, setBusqueda] = useState("");
+  const [pagina, setPagina] = useState(1);
 
   const [reservaCheckIn, setReservaCheckIn] = useState<Reserva | null>(null);
   const [reservaCheckOut, setReservaCheckOut] = useState<Reserva | null>(null);
@@ -123,6 +124,7 @@ export default function ReservasPage() {
   const [reservaCancelar, setReservaCancelar] = useState<Reserva | null>(null);
   const [reservaConfirmar, setReservaConfirmar] = useState<Reserva | null>(null);
   const [reservaPago, setReservaPago] = useState<Reserva | null>(null);
+  const [menuAccionesAbierto, setMenuAccionesAbierto] = useState<number | null>(null);
 
   const cargar = useCallback(async (signal?: AbortSignal) => {
     setCargando(true);
@@ -158,6 +160,10 @@ export default function ReservasPage() {
         .includes(q),
     );
   }, [reservas, busqueda]);
+  const porPagina = 10;
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / porPagina));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const reservasPagina = visibles.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   const actualizarFila = (actualizada: Reserva) => {
     setReservas((prev) => prev.map((r) => (r.reservation_id === actualizada.reservation_id ? actualizada : r)));
@@ -171,7 +177,7 @@ export default function ReservasPage() {
         descripcion=""
         acciones={
           <Link href="/reservas/nueva">
-            <Button>Nueva reserva</Button>
+            <Button>Registrar nueva reserva</Button>
           </Link>
         }
       />
@@ -183,7 +189,7 @@ export default function ReservasPage() {
               <button
                 key={p.valor}
                 type="button"
-                onClick={() => setPestana(p.valor)}
+                onClick={() => { setPestana(p.valor); setPagina(1); }}
                 aria-current={pestana === p.valor ? "true" : undefined}
                 className={
                   pestana === p.valor
@@ -200,7 +206,7 @@ export default function ReservasPage() {
             type="search"
             placeholder="Buscar por código, huésped, documento o habitación"
             value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
+            onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
             className="max-w-sm"
           />
         </div>
@@ -240,14 +246,15 @@ export default function ReservasPage() {
             }
           />
         ) : (
-          <Table className="min-w-[76rem] table-fixed">
+          <>
+          <Table className="!min-w-0 table-fixed [&_th]:px-2 [&_td]:px-2">
             <colgroup>
               <col className="w-[15%]" />
-              <col className="w-[15%]" />
+              <col className="w-[22%]" />
               <col className="w-[8%]" />
+              <col className="w-[22%]" />
+              <col className="w-[16%]" />
               <col className="w-[17%]" />
-              <col className="w-[13%]" />
-              <col className="w-[32%]" />
             </colgroup>
             <THead>
               <TH className="whitespace-nowrap">Código</TH>
@@ -255,10 +262,10 @@ export default function ReservasPage() {
               <TH className="whitespace-nowrap">Habitación</TH>
               <TH className="whitespace-nowrap">Estadía</TH>
               <TH className="whitespace-nowrap">Estado</TH>
-              <TH className="whitespace-nowrap text-right">Acciones</TH>
+              <TH className="whitespace-nowrap text-center">Acciones</TH>
             </THead>
             <TBody>
-              {visibles.map((r) => (
+              {reservasPagina.map((r) => (
                 <TR key={r.reservation_id}>
                   <TD className="whitespace-nowrap"><span className="inline-flex rounded-md border border-line bg-bone/45 px-2 py-1 font-mono text-[11px] tracking-tight text-carbon/80">{r.reservation_code}</span></TD>
                   <TD className="text-xs leading-5">
@@ -284,48 +291,80 @@ export default function ReservasPage() {
                       </span>
                     )}
                   </TD>
-                  <TD className="text-right">
-                    <div className="flex min-w-[20rem] flex-wrap justify-end gap-2">
-                    {r.reservation_status === "PENDIENTE" && (
-                      <Button tamano="sm" onClick={() => setReservaConfirmar(r)} aria-label={`Confirmar reserva ${r.reservation_code}`}>
-                        Confirmar
-                      </Button>
+                  <TD className="text-center">
+                    {!["PENDIENTE", "CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(r.reservation_status) ? (
+                      <span className="block text-right text-xs text-carbon/45">Sin acciones</span>
+                    ) : (
+                      <details className="mx-auto w-44 text-left" open={menuAccionesAbierto === r.reservation_id}>
+                        <summary
+                          aria-label={`Acciones para reserva ${r.reservation_code}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setMenuAccionesAbierto((abierto) => abierto === r.reservation_id ? null : r.reservation_id);
+                          }}
+                          className="mx-auto flex h-9 w-10 cursor-pointer list-none items-center justify-center rounded-md border border-line bg-white text-lg leading-none text-carbon/70 shadow-sm transition-colors hover:bg-bone hover:text-carbon focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-carbon [&::-webkit-details-marker]:hidden"
+                        >
+                          <span aria-hidden="true">⋯</span>
+                        </summary>
+                        <div className="mt-2 flex w-full flex-col gap-1 rounded-lg border border-line bg-white p-1.5 text-left shadow-lg">
+                          {r.reservation_status === "PENDIENTE" && (
+                            <Button tamano="sm" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaConfirmar(r); }} aria-label={`Confirmar reserva ${r.reservation_code}`}>
+                              Confirmar
+                            </Button>
+                          )}
+                          {["PENDIENTE", "CONFIRMADA"].includes(r.reservation_status) && (
+                            <>
+                              <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaEditar(r); }} aria-label={`Modificar reserva ${r.reservation_code}`}>
+                                Modificar
+                              </Button>
+                              <Button tamano="sm" variante="peligro" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaCancelar(r); }} aria-label={`Cancelar reserva ${r.reservation_code}`}>
+                                Cancelar reserva
+                              </Button>
+                            </>
+                          )}
+                          {r.reservation_status === "CONFIRMADA" && yaLlegoLaFecha(r.check_in_date) && (
+                            <Button tamano="sm" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaCheckIn(r); }} aria-label={`Registrar check-in de ${r.reservation_code}`}>
+                              Check-in
+                            </Button>
+                          )}
+                          {r.reservation_status === "IN_HOUSE" && (
+                            <>
+                              <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaHuespedes(r); }} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
+                                Huéspedes
+                              </Button>
+                              <Button tamano="sm" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaCheckOut(r); }} aria-label={`Registrar check-out de ${r.reservation_code}`}>
+                                Check-out
+                              </Button>
+                            </>
+                          )}
+                          {["IN_HOUSE", "FINALIZADA"].includes(r.reservation_status) && (
+                            <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaPago(r); }}>
+                              Cobros
+                            </Button>
+                          )}
+                        </div>
+                      </details>
                     )}
-                    {["PENDIENTE", "CONFIRMADA"].includes(r.reservation_status) && (
-                      <>
-                        <Button tamano="sm" variante="secundario" onClick={() => setReservaEditar(r)} aria-label={`Modificar reserva ${r.reservation_code}`}>
-                          Modificar
-                        </Button>{" "}
-                        <Button tamano="sm" variante="peligro" onClick={() => setReservaCancelar(r)} aria-label={`Cancelar reserva ${r.reservation_code}`}>
-                          Cancelar reserva
-                        </Button>{" "}
-                      </>
-                    )}
-                    {r.reservation_status === "CONFIRMADA" && yaLlegoLaFecha(r.check_in_date) && (
-                      <Button tamano="sm" onClick={() => setReservaCheckIn(r)} aria-label={`Registrar check-in de ${r.reservation_code}`}>
-                        Check-in
-                      </Button>
-                    )}
-                    {r.reservation_status === "IN_HOUSE" && (
-                      <>
-                        <Button tamano="sm" variante="secundario" onClick={() => setReservaHuespedes(r)} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
-                          Huéspedes
-                        </Button>
-                        <Button tamano="sm" onClick={() => setReservaCheckOut(r)} aria-label={`Registrar check-out de ${r.reservation_code}`}>
-                          Check-out
-                        </Button>
-                      </>
-                    )}
-                    {["IN_HOUSE", "FINALIZADA"].includes(r.reservation_status) && <Button tamano="sm" variante="secundario" onClick={() => setReservaPago(r)}>Cobros</Button>}
-                    {!["PENDIENTE", "CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(r.reservation_status) && (
-                      <span className="pr-1 text-xs text-carbon/45">Sin acciones disponibles</span>
-                    )}
-                    </div>
                   </TD>
                 </TR>
               ))}
             </TBody>
           </Table>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4 text-xs text-carbon/60">
+            <span>
+              {visibles.length === 0 ? "Sin resultados" : `Mostrando ${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, visibles.length)} de ${visibles.length} reservas`}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button type="button" tamano="sm" variante="secundario" disabled={paginaActual <= 1} onClick={() => setPagina((actual) => Math.max(1, actual - 1))}>
+                Anterior
+              </Button>
+              <span className="min-w-24 text-center tabular-nums">Página {paginaActual} de {totalPaginas}</span>
+              <Button type="button" tamano="sm" variante="secundario" disabled={paginaActual >= totalPaginas} onClick={() => setPagina((actual) => Math.min(totalPaginas, actual + 1))}>
+                Siguiente
+              </Button>
+            </div>
+          </div>
+          </>
         )}
       </Card>
 
