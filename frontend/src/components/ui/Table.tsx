@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
+import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes, HTMLAttributes } from "react";
 
 /**
  * Tabla de datos estándar. Se usa así:
@@ -52,8 +52,8 @@ export function TBody({ children }: { children: ReactNode }) {
   return <tbody className="divide-y divide-line">{children}</tbody>;
 }
 
-export function TR({ children }: { children: ReactNode }) {
-  return <tr className="transition-colors hover:bg-bone/40">{children}</tr>;
+export function TR({ children, className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
+  return <tr {...props} className={cn("transition-colors hover:bg-bone/40", className)}>{children}</tr>;
 }
 
 export function TD({

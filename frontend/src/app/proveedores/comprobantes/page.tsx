@@ -711,7 +711,7 @@ export default function ComprobantesPage() {
                                 return (
                                   <TR
                                     key={
-                                      item.purchase_detail_id ||
+                                      ("purchase_detail_id" in item ? item.purchase_detail_id : undefined) ||
                                       item.detail_id ||
                                       idx
                                     }

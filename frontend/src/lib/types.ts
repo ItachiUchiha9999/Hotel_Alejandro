@@ -55,6 +55,7 @@ export interface FilaSaldo {
     article_id: number;
     article_code: string;
     article_name: string;
+    article_state: boolean;
     article_unit_of_measure: string;
     article_stock_min_general: string | number;
   };

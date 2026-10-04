@@ -13,6 +13,12 @@ y la especificación de HU-9 en `docs/HU-9_HAB-06_Housekeeping.md`.
 
 ## Puesta en marcha
 
+Requisitos: Node.js 20.9 o superior, npm y PostgreSQL 17. Ejecutá los pasos
+desde la raíz de esta rama; `backend` y `frontend` se instalan por separado.
+Usá `npm ci` para instalar las versiones de los archivos `package-lock.json`.
+En PowerShell usá `npm.cmd` y `npx.cmd` si la política de ejecución bloquea
+los archivos `.ps1`. En Linux/macOS usá `npm` y `npx`.
+
 ### 1. Base de datos
 
 ```powershell
@@ -21,12 +27,13 @@ $env:PGCLIENTENCODING = "UTF8"
 
 createdb -U postgres sistema_hotelero_db
 
-psql -U postgres -d sistema_hotelero_db -f database/DB-hotel.pgsql
-psql -U postgres -d sistema_hotelero_db -f database/10_hu9_housekeeping.sql
+psql -U postgres -d sistema_hotelero_db -f database/instalar.sql
 ```
 
-El primero crea todo desde cero e incluye un bloque de limpieza, así que se
-puede volver a correr cuando haga falta. El segundo es incremental.
+`instalar.sql` crea el esquema, carga los datos iniciales y aplica los parches
+de housekeeping y tarifas. **Usalo solamente en una base nueva: elimina datos
+existentes.** Si `createdb` informa que la base ya existe, no ejecutes el
+instalador sobre ella; aplicá los parches incrementales que correspondan.
 Si la base ya existía antes del flujo de confirmación de reservas, ejecutá también
 `psql -U postgres -d sistema_hotelero_db -f database/11_reservas_pendientes.sql`.
 Para bases instaladas antes del registro de huéspedes y cargos por habitación,
@@ -38,6 +45,9 @@ stock y aplicar el criterio de disponibilidad durante limpieza, ejecutá
 `psql -U postgres -d sistema_hotelero_db -f database/14_reservas_minibar_pagos.sql`.
 Para registrar pagos parciales o totales de alojamiento, ejecutá
 `psql -U postgres -d sistema_hotelero_db -f database/15_cobros_alojamiento.sql`.
+
+Para bases anteriores a las temporadas de tarifas, ejecutá primero
+`psql -v ON_ERROR_STOP=1 -U postgres -d sistema_hotelero_db -f database/16_temporadas_tarifas.sql`.
 
 Para habilitar edición, activación/desactivación e historial de tarifas,
 ejecutá `psql -U postgres -d sistema_hotelero_db -f database/17_tarifas_edicion_estado.sql`
@@ -53,20 +63,26 @@ Verificación:
 psql -U postgres -d sistema_hotelero_db -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
 ```
 
-Tienen que ser **39 tablas**.
+En una instalación nueva tienen que ser **44 tablas**.
 
 ### 2. Backend
 
 ```powershell
 cd backend
 copy .env.example .env      # completar DATABASE_URL con la contraseña local
-npm install
-npx prisma generate
-npm test
-npm run dev
+npm.cmd ci
+npx.cmd prisma generate
+npm.cmd test
+npm.cmd run dev
 ```
 
 Queda en `http://localhost:4000`. Para comprobar: `http://localhost:4000/api/health`.
+La respuesta de health confirma que la API arrancó; verificá también un módulo
+como `/api/tarifas` para comprobar la conexión y el esquema de la base.
+El usuario, contraseña, puerto y nombre de base de `DATABASE_URL` deben
+coincidir con el PostgreSQL de cada compañero. No uses `prisma db push`
+ni `prisma migrate` para instalar esta base: los scripts SQL incluyen triggers
+y funciones necesarios para el sistema.
 
 ### 3. Frontend
 
@@ -75,11 +91,19 @@ En otra terminal:
 ```powershell
 cd frontend
 copy .env.local.example .env.local
-npm install
-npm run dev
+npm.cmd ci
+npm.cmd run build
+npm.cmd run dev
 ```
 
 Queda en `http://localhost:3000`. Usuario de prueba: `admin` / `1234`.
+`NEXT_PUBLIC_API_URL` debe apuntar al backend, sin `/api` al final. Si cambiás
+el puerto del frontend, agregá su origen a `CORS_ORIGINS` en `backend/.env`.
+
+Si aparece `@prisma/client did not initialize`, ejecutá `npx.cmd prisma generate`
+desde `backend`. Si aparece que una columna o tabla no existe, comprobá los
+parches de la base indicada en `DATABASE_URL`. Si el puerto está ocupado,
+cerrá la otra instancia o ajustá los puertos y las variables anteriores.
 
 ---
 
