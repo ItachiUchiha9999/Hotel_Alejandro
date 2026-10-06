@@ -27,6 +27,7 @@ const tarifasRoutes = require('./modules/tarifas/tarifas.routes');
 const panelHabitacionesRoutes = require('./modules/panel-habitaciones/panelHabitaciones.routes');
 const serviciosHabitacionRoutes = require('./modules/servicios-habitacion/serviciosHabitacion.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
+const publicoRoutes = require('./modules/publico/publico.routes');
 
 const app = express();
 
@@ -66,6 +67,7 @@ app.use('/api/tarifas', tarifasRoutes);
 app.use('/api/panel-habitaciones', panelHabitacionesRoutes);
 app.use('/api/servicios-habitacion', serviciosHabitacionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/publico', publicoRoutes);
 
 // ---------------------------------------------------------------------------
 // Alias en inglés.

@@ -126,7 +126,7 @@ const obtener = async (id) => {
  * - Filtro opcional por capacidad (room_type_max_capacity >= capacidad).
  * - Multiplica el precio por noche por la cantidad de noches.
  */
-const consultarDisponibilidad = async ({ desde, hasta, capacidad, tipo } = {}) => {
+const consultarDisponibilidad = async ({ desde, hasta, capacidad, tipo, capacidadObligatoria = false } = {}) => {
   // 1. Validaciones obligatorias de fechas
   if (!desde || !hasta) {
     throw invalido('Las fechas de Check-in (desde) y Check-out (hasta) son obligatorias.');
@@ -164,6 +164,7 @@ const consultarDisponibilidad = async ({ desde, hasta, capacidad, tipo } = {}) =
   // 2. Filtros de capacidad y tipo
   const cap = capacidad ? toPositive(capacidad) : null;
   const tipoId = tipo ? toId(tipo) : null;
+  if (capacidadObligatoria && !cap) throw invalido('La cantidad de huéspedes debe ser un número entero mayor a cero.');
   if (capacidad && !cap) throw invalido('La capacidad debe ser un número entero mayor a cero.');
   if (tipo && !tipoId) throw invalido('El tipo de habitación seleccionado no es válido.');
 
@@ -179,6 +180,11 @@ const consultarDisponibilidad = async ({ desde, hasta, capacidad, tipo } = {}) =
     )
   `;
 
+  const tipos = await prisma.room_type.findMany({
+    where: { room_type_id: { in: [...new Set(disponibles.map((r) => r.room_type_id))] } },
+    select: { room_type_id: true, room_type_description: true },
+  });
+  const descripciones = new Map(tipos.map((tipoHabitacion) => [tipoHabitacion.room_type_id, tipoHabitacion.room_type_description]));
   const resultado = disponibles
     .filter((habitacion) => !tipoId || habitacion.room_type_id === tipoId)
     .map((habitacion) => ({
@@ -188,7 +194,7 @@ const consultarDisponibilidad = async ({ desde, hasta, capacidad, tipo } = {}) =
     room_type: {
       room_type_id: habitacion.room_type_id,
       room_type_name: habitacion.room_type_name,
-      room_type_description: null,
+      room_type_description: descripciones.get(habitacion.room_type_id) ?? null,
       room_type_max_capacity: habitacion.max_capacity,
     },
     noches: Number(habitacion.nights),

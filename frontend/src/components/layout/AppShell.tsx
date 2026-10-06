@@ -16,15 +16,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // Buscamos si existe el pase VIP en el navegador
     const tieneSesion = localStorage.getItem("sesionIniciada");
 
-    // Si NO tiene sesión y está intentando entrar a cualquier lado que NO sea el login...
-    if (!tieneSesion && pathname !== "/login") {
+    // Las rutas públicas y el login no requieren sesión administrativa.
+    const esPublica = pathname === "/web" || pathname.startsWith("/web/");
+    if (!tieneSesion && pathname !== "/login" && !esPublica) {
       // Lo pateamos de vuelta al login
       router.push("/login");
     }
   }, [pathname, router]);
 
-  // Si la ruta es el Login, dibujamos la pantalla limpia sin menús
-  if (pathname === "/login") {
+  // Login y web pública usan una presentación sin menú administrativo.
+  if (pathname === "/login" || pathname === "/web" || pathname.startsWith("/web/")) {
     return <>{children}</>;
   }
 

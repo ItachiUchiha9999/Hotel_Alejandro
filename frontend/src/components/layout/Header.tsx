@@ -26,7 +26,7 @@ export function Header({ onAbrirMenu, usuario }: HeaderProps) {
           type="button"
           onClick={onAbrirMenu}
           aria-label="Abrir menú de módulos"
-          className="rounded-md p-2 text-bone/70 transition-colors hover:bg-white/10 hover:text-bone focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold lg:hidden"
+          className="rounded-md p-2 text-bone/70 transition-colors hover:bg-white/10 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold lg:hidden"
         >
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
@@ -51,7 +51,7 @@ export function Header({ onAbrirMenu, usuario }: HeaderProps) {
           onClick={handleCerrarSesion}
           title="Cerrar sesión"
           aria-label={`Cuenta de ${usuario?.nombre ?? "usuario"}`}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold text-sm font-semibold text-carbon transition-colors hover:bg-gold-dark hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold text-sm font-semibold text-carbon transition-colors hover:bg-gold-dark hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
         >
           {iniciales}
         </button>

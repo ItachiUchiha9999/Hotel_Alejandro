@@ -3,8 +3,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Hotel Alejandro I — Gestión de Stock",
-  description: "Sistema de Gestión Integral Hotelera (SIGH). Salta, Argentina.",
+  title: "Hotel Alejandro I",
+  description: "Hotel Alejandro I — Salta, Argentina.",
 };
 
 /**
