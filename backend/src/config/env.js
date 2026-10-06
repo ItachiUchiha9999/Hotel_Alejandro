@@ -8,6 +8,13 @@ const env = {
   PORT: Number(process.env.PORT || 4000),
   DATABASE_URL: process.env.DATABASE_URL,
   NODE_ENV: process.env.NODE_ENV || 'development',
+  SMTP_HOST: process.env.SMTP_HOST || '',
+  SMTP_PORT: Number(process.env.SMTP_PORT || 587),
+  SMTP_SECURE: process.env.SMTP_SECURE === 'true',
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  MAIL_FROM: process.env.MAIL_FROM || '',
+  PUBLIC_WEB_URL: process.env.PUBLIC_WEB_URL || 'http://localhost:3000',
 
   /** Orígenes permitidos para CORS, separados por coma. */
   CORS_ORIGINS: (process.env.CORS_ORIGINS || 'http://localhost:3000')

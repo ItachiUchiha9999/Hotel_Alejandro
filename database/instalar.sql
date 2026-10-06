@@ -4,3 +4,4 @@
 \ir DB-hotel.pgsql
 \ir 10_hu9_housekeeping.sql
 \ir 17_tarifas_edicion_estado.sql
+\ir 18_reservas_web.sql

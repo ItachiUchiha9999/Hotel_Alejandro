@@ -63,7 +63,11 @@ Verificación:
 psql -U postgres -d sistema_hotelero_db -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
 ```
 
-En una instalación nueva tienen que ser **44 tablas**.
+En una instalación nueva tienen que ser **45 tablas** (incluida la cola de correo de ECO-02).
+
+Para agregar la reserva web a una base existente, ejecutar
+`database/18_reservas_web.sql` o `node scripts/instalar-eco2.js` desde backend.
+Configurar SMTP en `backend/.env` para enviar las confirmaciones. Ver `docs/ECO-02.md`.
 
 ### 2. Backend
 

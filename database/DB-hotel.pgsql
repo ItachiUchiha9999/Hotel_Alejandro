@@ -54,6 +54,7 @@ DROP VIEW IF EXISTS v_room_status_board CASCADE;
 DROP VIEW IF EXISTS v_rate_history CASCADE;
 
 -- Tablas (orden inverso al de creación)
+DROP TABLE IF EXISTS reservation_web_request CASCADE;
 DROP TABLE IF EXISTS Room_Maintenance CASCADE;
 DROP TABLE IF EXISTS Reservation_Check_Out CASCADE;
 DROP TABLE IF EXISTS Reservation_Check_In CASCADE;

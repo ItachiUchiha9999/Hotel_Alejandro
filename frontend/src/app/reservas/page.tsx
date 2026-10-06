@@ -81,6 +81,15 @@ const etiquetaEstado: Record<EstadoReserva, string> = {
   NO_SHOW: "No-show",
 };
 
+const etiquetaOrigen: Record<string, string> = {
+  WEB: "Sitio web",
+  RECEPCION: "Recepción",
+  TELEFONO: "Teléfono",
+  AGENCIA: "Agencia",
+  CORPORATIVO: "Corporativo",
+};
+const origenReserva = (origen: string) => etiquetaOrigen[origen] ?? (origen || "Sin informar");
+
 /** El usuario de recepción todavía no viene de un login real (ver .env
  *  DEFAULT_EMPLOYEE_ID). Se lee el mismo valor que ya guarda ReservaForm.tsx
  *  al crear una reserva, para no pedirlo dos veces. */
@@ -155,7 +164,7 @@ export default function ReservasPage() {
     const q = busqueda.trim().toLowerCase();
     if (!q) return reservas;
     return reservas.filter((r) =>
-      `${r.reservation_code} ${r.guest.first_name} ${r.guest.last_name} ${r.guest.document_number} ${r.room.room_number}`
+      `${r.reservation_code} ${r.guest.first_name} ${r.guest.last_name} ${r.guest.document_number} ${r.room.room_number} ${origenReserva(r.reservation_source)}`
         .toLowerCase()
         .includes(q),
     );
@@ -204,7 +213,7 @@ export default function ReservasPage() {
 
           <Input
             type="search"
-            placeholder="Buscar por código, huésped, documento o habitación"
+            placeholder="Buscar por código, huésped, documento, habitación u origen"
             value={busqueda}
             onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
             className="max-w-sm"
@@ -257,7 +266,7 @@ export default function ReservasPage() {
               <col className="w-[17%]" />
             </colgroup>
             <THead>
-              <TH className="whitespace-nowrap">Código</TH>
+              <TH className="whitespace-nowrap">Código / Origen</TH>
               <TH className="whitespace-nowrap">Huésped</TH>
               <TH className="whitespace-nowrap">Habitación</TH>
               <TH className="whitespace-nowrap">Estadía</TH>
@@ -267,7 +276,12 @@ export default function ReservasPage() {
             <TBody>
               {reservasPagina.map((r) => (
                 <TR key={r.reservation_id}>
-                  <TD className="whitespace-nowrap"><span className="inline-flex rounded-md border border-line bg-bone/45 px-2 py-1 font-mono text-[11px] tracking-tight text-carbon/80">{r.reservation_code}</span></TD>
+                  <TD className="whitespace-nowrap">
+                    <span className="inline-flex rounded-md border border-line bg-bone/45 px-2 py-1 font-mono text-[11px] tracking-tight text-carbon/80">{r.reservation_code}</span>
+                    <span className={`mt-1 block text-[11px] ${r.reservation_source === "WEB" ? "font-semibold text-[#56725c]" : "text-carbon/50"}`}>
+                      {origenReserva(r.reservation_source)}
+                    </span>
+                  </TD>
                   <TD className="text-xs leading-5">
                     <span className="block font-semibold text-carbon">
                       {r.guest.last_name}, {r.guest.first_name}

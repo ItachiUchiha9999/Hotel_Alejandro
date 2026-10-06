@@ -2,6 +2,18 @@ const app = require('./app');
 const env = require('./config/env');
 const prisma = require('./db/prisma');
 const reservasService = require('./modules/reservas/reservas.service');
+const { procesarCorreos } = require('./modules/publico/correoReserva.service');
+let correoEnCurso = false;
+const enviarPendientes = async () => {
+  if (correoEnCurso) return;
+  correoEnCurso = true;
+  try { await procesarCorreos(); }
+  catch (error) { console.error('[correo-reserva] No se pudo procesar la cola:', error.code || 'DB_ERROR'); }
+  finally { correoEnCurso = false; }
+};
+enviarPendientes();
+const jobCorreos = setInterval(enviarPendientes, 10000);
+jobCorreos.unref();
 
 const expirarPendientes = () => reservasService.expirarPendientes().catch((error) => {
   console.error('No se pudieron liberar las reservas pendientes vencidas:', error.message);
@@ -19,6 +31,7 @@ const server = app.listen(env.PORT, () => {
 const apagar = async (senal) => {
   console.log(`\n${senal} recibido, cerrando...`);
   clearInterval(jobExpiracionReservas);
+  clearInterval(jobCorreos);
   server.close();
   await prisma.$disconnect();
   process.exit(0);

@@ -80,8 +80,14 @@ export function ResultadosDisponibilidad() {
   }
 
   function elegir(h: HabitacionPublica) {
+    if (sessionStorage.getItem('hotelAlejandro.solicitudECO02')) {
+      router.push('/web/reservar');
+      return;
+    }
+    sessionStorage.removeItem('hotelAlejandro.confirmacionECO02');
     sessionStorage.setItem("hotelAlejandro.seleccionECO01", JSON.stringify({ desde, hasta, huespedes: Number(huespedes), habitacion_id: h.habitacion_id, tipo_id: h.tipo_id, tipo: h.tipo, precio_por_noche: h.precio_por_noche, noches: h.noches, total: h.total }));
     setSeleccionada(h.tipo_id);
+    router.push('/web/reservar');
   }
 
   return <main className="min-h-screen bg-[#f7f4ee] text-carbon">

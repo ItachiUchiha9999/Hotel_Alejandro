@@ -1,5 +1,6 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const service = require('./publico.service');
+const reservaWeb = require('./reservaWeb.service');
 
 const disponibilidad = asyncHandler(async (req, res) => {
   const data = await service.disponibilidad({
@@ -20,4 +21,9 @@ const cancelarReserva = asyncHandler(async (req, res) => {
   res.json({ ok: true, message: 'La reserva fue cancelada correctamente.', data });
 });
 
-module.exports = { disponibilidad, consultarReserva, cancelarReserva };
+const crearReserva = asyncHandler(async (req, res) => {
+  const data = await reservaWeb.crearReservaWeb(req.body);
+  res.status(201).json({ ok: true, data });
+});
+
+module.exports = { disponibilidad, consultarReserva, cancelarReserva, crearReserva };
