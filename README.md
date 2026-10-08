@@ -63,11 +63,15 @@ Verificación:
 psql -U postgres -d sistema_hotelero_db -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
 ```
 
-En una instalación nueva tienen que ser **45 tablas** (incluida la cola de correo de ECO-02).
+En una instalación nueva tienen que ser **49 tablas** (incluidas las cuatro de gastos operativos y la cola de correo de ECO-02).
 
 Para agregar la reserva web a una base existente, ejecutar
 `database/18_reservas_web.sql` o `node scripts/instalar-eco2.js` desde backend.
 Configurar SMTP en `backend/.env` para enviar las confirmaciones. Ver `docs/ECO-02.md`.
+
+Para REP-07, las instalaciones nuevas aplican automáticamente
+`database/19_reporte_egresos.sql`. En bases existentes, ejecutar ese script una
+vez para crear las tablas de gastos operativos usadas por el reporte.
 
 ### 2. Backend
 

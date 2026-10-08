@@ -87,6 +87,7 @@ export const MODULOS: ItemNavegacion[] = [
       { nombre: "Saldo consolidado", ruta: "/stock/saldo" },
       { nombre: "Historial", ruta: "/stock/historial" },
       { nombre: "Ingresos", ruta: "/reportes/ingresos" },
+      { nombre: "Egresos", ruta: "/reportes/egresos" },
     ],
   },
 ];

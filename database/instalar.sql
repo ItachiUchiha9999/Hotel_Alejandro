@@ -5,3 +5,4 @@
 \ir 10_hu9_housekeeping.sql
 \ir 17_tarifas_edicion_estado.sql
 \ir 18_reservas_web.sql
+\ir 19_reporte_egresos.sql
