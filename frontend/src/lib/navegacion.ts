@@ -86,6 +86,7 @@ export const MODULOS: ItemNavegacion[] = [
     hijos: [
       { nombre: "Saldo consolidado", ruta: "/stock/saldo" },
       { nombre: "Historial", ruta: "/stock/historial" },
+      { nombre: "Ingresos", ruta: "/reportes/ingresos" },
     ],
   },
 ];

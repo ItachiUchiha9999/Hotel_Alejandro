@@ -67,6 +67,7 @@ app.use('/api/tarifas', tarifasRoutes);
 app.use('/api/panel-habitaciones', panelHabitacionesRoutes);
 app.use('/api/servicios-habitacion', serviciosHabitacionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/ingresos', require('./modules/ingresos/ingresos.routes'));
 app.use('/api/publico', publicoRoutes);
 
 // ---------------------------------------------------------------------------
