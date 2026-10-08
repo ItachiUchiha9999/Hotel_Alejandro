@@ -84,6 +84,7 @@ export const MODULOS: ItemNavegacion[] = [
     nombre: "Reportes",
     ruta: "/reportes",
     hijos: [
+      { nombre: "Ocupación y Temporadas", ruta: "/reportes/temporadas" }, // <-- REP-08
       { nombre: "Saldo consolidado", ruta: "/stock/saldo" },
       { nombre: "Historial", ruta: "/stock/historial" },
       { nombre: "Ingresos", ruta: "/reportes/ingresos" },

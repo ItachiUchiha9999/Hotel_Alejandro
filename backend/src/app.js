@@ -28,6 +28,7 @@ const panelHabitacionesRoutes = require('./modules/panel-habitaciones/panelHabit
 const serviciosHabitacionRoutes = require('./modules/servicios-habitacion/serviciosHabitacion.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
 const publicoRoutes = require('./modules/publico/publico.routes');
+const reportesRoutes = require('./modules/reportes/reportes.routes');
 
 const app = express();
 
@@ -58,7 +59,7 @@ app.use('/api/ordenes-pago', ordenesPagoRoutes);
 app.use('/api/ordenes-compra', ordenesCompraRoutes);
 app.use('/api/cuenta-corriente', cuentaCorrienteRoutes);
 
-// Sprint 3 — reservas, habitaciones, tarifas y panel consolidado
+// Sprint 3 y 4 — reservas, habitaciones, tarifas, reportes e informes
 app.use('/api/tipos-habitacion', tiposHabitacionRoutes);
 app.use('/api/habitaciones', habitacionesRoutes);
 app.use('/api/reservas', reservasRoutes);
@@ -69,6 +70,7 @@ app.use('/api/servicios-habitacion', serviciosHabitacionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/ingresos', require('./modules/ingresos/ingresos.routes'));
 app.use('/api/egresos', require('./modules/egresos/egresos.routes'));
+app.use('/api/reportes', reportesRoutes);
 app.use('/api/publico', publicoRoutes);
 
 // ---------------------------------------------------------------------------

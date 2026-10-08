@@ -189,3 +189,52 @@ export function asignarTarifaTipo(
 export function getHistorialTarifas(id: number) {
   return api.get<any[]>(`/tipos-habitacion/${id}/tarifas/historial`);
 }
+
+/* ---------------------------------------------------------------------------
+ * REP-08 — Reporte de Ocupación e Ingresos por Temporada
+ * ------------------------------------------------------------------------- */
+
+export interface ReporteOcupacionTemporadas {
+  filtros: {
+    desde: string;
+    hasta: string;
+    temporada: string;
+    tipo: string | number;
+    dias_periodo: number;
+  };
+  resumen: {
+    noches_ocupadas: number;
+    capacidad_total_noches: number;
+    tasa_ocupacion_global_pct: number;
+    ingresos_totales_alojamiento: number;
+    adr_global: number;
+    revpar: number;
+  };
+  desglose: Array<{
+    room_type_id: number;
+    room_type_name: string;
+    season_name: string;
+    total_reservas: number;
+    noches_ocupadas: number;
+    noches_disponibles: number;
+    tasa_ocupacion_pct: number;
+    ingresos_alojamiento: number;
+    adr: number;
+  }>;
+}
+
+export function getReporteOcupacionTemporadas(params?: {
+  desde?: string;
+  hasta?: string;
+  temporada?: string;
+  tipo?: string | number;
+}) {
+  const query = new URLSearchParams();
+  if (params?.desde) query.append('desde', params.desde);
+  if (params?.hasta) query.append('hasta', params.hasta);
+  if (params?.temporada && params.temporada !== 'TODAS') query.append('temporada', params.temporada);
+  if (params?.tipo && params.tipo !== 'TODOS') query.append('tipo', String(params.tipo));
+
+  const q = query.toString() ? `?${query.toString()}` : '';
+  return api.get<ReporteOcupacionTemporadas>(`/reportes/ocupacion-temporadas${q}`);
+}

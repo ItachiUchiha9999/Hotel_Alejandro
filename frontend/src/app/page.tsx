@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Download } from "lucide-react";
+import { Download, BedDouble, Calendar, ArrowRight, DollarSign, Percent } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, InfoBox, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
-import { api, urlDescarga } from "@/lib/api";
+import { api, urlDescarga, getReporteOcupacionTemporadas, type ReporteOcupacionTemporadas } from "@/lib/api";
 import type { FilaSaldo, Movimiento } from "@/lib/types";
 
 type PeriodoFinanciero = "SEMANA" | "MES";
@@ -45,15 +45,6 @@ function GraficoFinanciero({ puntos }: { puntos: PuntoFinanciero[] }) {
   </div>;
 }
 
-/**
- * Inicio del sistema.
- *
- * Antes esta página era una copia casi literal de /articulos (35 KB duplicados,
- * con su propio estado, sus propios fetch y un switch de vista que nunca se
- * usaba). Ahora es un panel de entrada: muestra lo que hay que mirar primero y
- * lleva a cada módulo.
- */
-
 export default function InicioPage() {
   const [saldo, setSaldo] = useState<FilaSaldo[]>([]);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
@@ -66,6 +57,10 @@ export default function InicioPage() {
   const [errorReporte, setErrorReporte] = useState(false);
   const [exportando, setExportando] = useState<"pdf" | "xlsx" | null>(null);
   const [errorExportacion, setErrorExportacion] = useState<string | null>(null);
+
+  // REP-08: Estado del panel de ocupación y tarifas estacionales
+  const [reporteOcupacion, setReporteOcupacion] = useState<ReporteOcupacionTemporadas | null>(null);
+  const [cargandoOcupacion, setCargandoOcupacion] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -93,6 +88,16 @@ export default function InicioPage() {
       .finally(() => { if (vigente) setCargandoReporte(false); });
     return () => { vigente = false; };
   }, [periodo, fechaFinanzas]);
+
+  // Cargar datos de ocupación y tarifas por temporada del mes actual
+  useEffect(() => {
+    const hoy = fechaLocalHoy();
+    const inicioMes = `${hoy.slice(0, 7)}-01`;
+    getReporteOcupacionTemporadas({ desde: inicioMes, hasta: hoy })
+      .then((data) => setReporteOcupacion(data))
+      .catch(() => {})
+      .finally(() => setCargandoOcupacion(false));
+  }, []);
 
   const bajoMinimo = saldo.filter(
     (f) => Number(f.stock_amount) < Number(f.articles.article_stock_min_general),
@@ -128,11 +133,97 @@ export default function InicioPage() {
       <PageHeader
         eyebrow="SIGH · Sistema de Gestión Hotelera"
         titulo="Hotel Alejandro I"
-        descripcion="Resumen financiero y operativo de reservas, habitaciones e insumos."
+        descripcion="Resumen financiero, operativo y rendimiento de reservas por temporada."
       />
 
       <Card className="mb-6" titulo="Alertas de stock" descripcion={cargandoOperativo ? "Consultando niveles de inventario…" : sinBackend ? "No se pudo verificar el inventario." : bajoMinimo.length > 0 ? `${bajoMinimo.length} artículo(s) necesitan reposición.` : "No hay artículos por debajo del mínimo configurado."}>
         {cargandoOperativo ? <p className="py-3 text-sm text-carbon/55">Consultando stock…</p> : sinBackend ? <p className="py-3 text-sm text-red-700">No se pudo verificar el inventario. Revisá la conexión con el servidor.</p> : bajoMinimo.length === 0 ? <p className="py-3 text-sm text-carbon/55">Todo en orden.</p> : <Table><THead><TH>Artículo</TH><TH>Depósito</TH><TH className="text-right">Actual / mínimo</TH></THead><TBody>{bajoMinimo.slice(0, 5).map((f) => <TR key={f.stock_id}><TD className="font-medium">{f.articles.article_name}</TD><TD className="text-xs">{f.deposit.deposit_name}</TD><TD className="text-right tabular-nums"><Badge tono="alerta">{Number(f.stock_amount)} / {Number(f.articles.article_stock_min_general)}</Badge></TD></TR>)}</TBody></Table>}
+      </Card>
+
+      {/* Widget REP-08: Ocupación y Rendimiento por Temporada */}
+      <Card
+        className="mb-6"
+        titulo="Ocupación y Rendimiento por Temporada"
+        descripcion="Desempeño acumulado en el mes corriente según tarifas estacionales."
+      >
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-carbon/55">Tasa de Ocupación</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
+                    {cargandoOcupacion ? "…" : `${reporteOcupacion?.resumen.tasa_ocupacion_global_pct ?? 0}%`}
+                  </p>
+                  <p className="mt-1 text-xs text-carbon/50">
+                    {reporteOcupacion?.resumen.noches_ocupadas ?? 0} de {reporteOcupacion?.resumen.capacidad_total_noches ?? 0} noches
+                  </p>
+                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
+                  <Percent size={18} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-carbon/55">Ingresos Alojamiento</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
+                    {cargandoOcupacion ? "…" : moneda(reporteOcupacion?.resumen.ingresos_totales_alojamiento ?? 0)}
+                  </p>
+                  <p className="mt-1 text-xs text-carbon/50">Facturación bruta estacional</p>
+                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
+                  <DollarSign size={18} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-carbon/55">ADR (Tarifa Promedio)</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
+                    {cargandoOcupacion ? "…" : moneda(reporteOcupacion?.resumen.adr_global ?? 0)}
+                  </p>
+                  <p className="mt-1 text-xs text-carbon/50">Por noche vendida</p>
+                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
+                  <BedDouble size={18} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-carbon/55">RevPAR</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
+                    {cargandoOcupacion ? "…" : moneda(reporteOcupacion?.resumen.revpar ?? 0)}
+                  </p>
+                  <p className="mt-1 text-xs text-carbon/50">Por noche disponible</p>
+                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
+                  <Calendar size={18} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-line bg-bone/30 px-4 py-2.5">
+            <span className="text-xs text-carbon/65">
+              Cálculo cruzado entre reservas efectivas y tarifas configuradas por temporada.
+            </span>
+            <Link
+              href="/reportes/temporadas"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-carbon hover:text-gold transition-colors"
+            >
+              Ver reporte analítico completo
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+        </div>
       </Card>
 
       <Card className="mb-6" titulo="Resumen financiero" descripcion="Ingresos cobrados, egresos pagados y resultado neto por fecha.">
