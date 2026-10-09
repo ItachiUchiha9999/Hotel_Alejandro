@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, Card, CardFooter, Field, FieldGrid, InfoBox, Input, Select } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getHistorialTarifas } from "@/lib/api";
 
 interface Cliente { guest_id: number; document_type: string; document_number: string; first_name: string; last_name: string; }
-interface Habitacion { room_id: number; room_number: string; room_type: { room_type_name: string }; }
+interface Habitacion { room_id: number; room_number: string; room_type: { room_type_id: number; room_type_name: string }; }
 interface Catalogos { huespedes: Cliente[]; habitaciones: Habitacion[]; }
 interface Reserva { reservation_code: string; guest: Cliente; }
 const clienteVacio = { first_name: '', last_name: '', document_type: 'DNI', document_number: '', email: '', phone: '' };
@@ -19,6 +19,36 @@ const fechaLocal = (dias = 0) => {
   const día = String(date.getDate()).padStart(2, "0");
   return `${año}-${mes}-${día}`;
 };
+
+// ---------------------------------------------------------------------------
+// Precio estimado: tarifa vigente del tipo de habitación a la fecha de ingreso
+// ---------------------------------------------------------------------------
+interface Tarifa {
+  rate_id: number;
+  base_price: number | string;
+  currency: string;
+  valid_from: string;
+  valid_to: string | null;
+  active: boolean;
+}
+
+// Compara fechas como texto AAAA-MM-DD: las del backend llegan con hora (ISO),
+// así que nos quedamos con los primeros 10 caracteres.
+const soloDia = (valor: string | Date) => String(valor).slice(0, 10);
+
+/**
+ * Devuelve la tarifa vigente de un tipo para una fecha de ingreso: activa,
+ * con valid_from <= fecha y sin valid_to (o valid_to > fecha). Si hay varias,
+ * gana la de valid_from más reciente. Sin ninguna, devuelve null.
+ */
+function tarifaVigente(tarifas: Tarifa[], fecha: string): Tarifa | null {
+  return [...tarifas]
+    .filter((tarifa) => tarifa.active
+      && soloDia(tarifa.valid_from) <= fecha
+      && (!tarifa.valid_to || soloDia(tarifa.valid_to) > fecha))
+    .sort((a, b) => soloDia(b.valid_from).localeCompare(soloDia(a.valid_from)))
+    .at(0) ?? null;
+}
 
 export function ReservaForm() {
   const hoy = useMemo(() => fechaLocal(), []);
@@ -44,6 +74,11 @@ export function ReservaForm() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
+  const [cargandoTarifa, setCargandoTarifa] = useState(false);
+  // Último tipo de habitación pedido: si el usuario cambia de habitación
+  // mientras viaja una respuesta, se descarta la que llega tarde.
+  const ultimoTipoSolicitado = useRef<number | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -54,6 +89,47 @@ export function ReservaForm() {
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los catálogos."))
       .finally(() => setCargandoCatalogos(false));
   }, []);
+
+  // Habitación física elegida: sirve para conocer su tipo y buscar tarifas.
+  const habitacionSeleccionada = useMemo(
+    () => catalogos.habitaciones.find((habitacion) => habitacion.room_id === Number(habitacionId)) ?? null,
+    [catalogos, habitacionId],
+  );
+
+  // Trae el historial de tarifas del tipo de la habitación elegida. Solo
+  // depende de la habitación: el historial no cambia con la fecha, la vigencia
+  // se calcula del lado del cliente con tarifaVigente().
+  useEffect(() => {
+    const tipoId = habitacionSeleccionada?.room_type.room_type_id ?? null;
+    ultimoTipoSolicitado.current = tipoId;
+    if (!tipoId) {
+      setTarifas([]);
+      return;
+    }
+    setCargandoTarifa(true);
+    getHistorialTarifas(tipoId)
+      .then((lista) => {
+        if (ultimoTipoSolicitado.current === tipoId) setTarifas(lista as Tarifa[]);
+      })
+      .catch(() => {
+        if (ultimoTipoSolicitado.current === tipoId) setTarifas([]);
+      })
+      .finally(() => {
+        if (ultimoTipoSolicitado.current === tipoId) setCargandoTarifa(false);
+      });
+  }, [habitacionSeleccionada]);
+
+  // Precio estimado: tarifa vigente a la fecha de ingreso por las noches.
+  // Es informativo: el monto definitivo lo calcula el backend al registrar.
+  const tarifa = useMemo(() => tarifaVigente(tarifas, checkIn), [tarifas, checkIn]);
+  const noches = useMemo(() => {
+    const dias = Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000);
+    return Number.isFinite(dias) && dias > 0 ? dias : 0;
+  }, [checkIn, checkOut]);
+  const precioNoche = tarifa ? Number(tarifa.base_price) : 0;
+  const estimado = tarifa && noches > 0 ? precioNoche * noches : null;
+  const formatoMoneda = (valor: number, moneda = "ARS") =>
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: moneda }).format(valor);
 
   const registrar = async (event: FormEvent) => {
     event.preventDefault();
@@ -154,6 +230,17 @@ export function ReservaForm() {
             <Input id="res-empleado" type="number" min={1} value={employeeId} disabled={guardando} onChange={(e) => setEmployeeId(e.target.value)} />
           </Field>
         </FieldGrid>
+        {habitacionId && (
+          <InfoBox tipo="regla" titulo="Precio estimado">
+            {cargandoTarifa
+              ? "Consultando la tarifa vigente…"
+              : !tarifa
+                ? "La habitación no tiene tarifa vigente para la fecha de ingreso elegida."
+                : noches === 0
+                  ? "Elegí una fecha de egreso posterior a la de ingreso para ver el estimado."
+                  : `Tarifa vigente: ${formatoMoneda(precioNoche, tarifa.currency || "ARS")} por noche · ${noches} ${noches === 1 ? "noche" : "noches"} · Estimado del alojamiento: ${formatoMoneda(estimado ?? 0, tarifa.currency || "ARS")}`}
+          </InfoBox>
+        )}
         <CardFooter>
           <Button type="submit" cargando={guardando} disabled={cargandoCatalogos}>Registrar reserva</Button>
         </CardFooter>

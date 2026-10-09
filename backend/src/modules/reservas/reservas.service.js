@@ -241,7 +241,7 @@ const liberarHold = async (id, employeeId) => {
 const listarHuespedes = () => prisma.guest.findMany({ where: { guest_state: true }, orderBy: [{ last_name: 'asc' }, { first_name: 'asc' }] });
 const listarHabitaciones = () => prisma.room.findMany({
   where: { active: true, room_state: { notIn: ['FUERA_DE_SERVICIO', 'MANTENIMIENTO'] } },
-  select: { room_id: true, room_number: true, room_state: true, room_type: { select: { room_type_name: true } } }, orderBy: { room_number: 'asc' },
+  select: { room_id: true, room_number: true, room_state: true, room_type: { select: { room_type_id: true, room_type_name: true } } }, orderBy: { room_number: 'asc' },
 });
 const catalogos = async () => Promise.all([listarHuespedes(), listarHabitaciones()]).then(([huespedes, habitaciones]) => ({ huespedes, habitaciones }));
 
