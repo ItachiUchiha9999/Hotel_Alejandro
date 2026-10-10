@@ -28,6 +28,23 @@ function validarSolicitud(body = {}) {
   if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email)) throw invalido('Ingresá un correo electrónico válido.');
   const telefono = texto('telefono', 'El teléfono', 30);
   if (!/^[+\d().\s-]+$/.test(telefono) || telefono.replace(/\D/g, '').length < 6) throw invalido('Ingresá un teléfono válido.');
+  // Hora de llegada estimada (franja en punto). Es opcional: las
+  // reservas de recepción no la informan.
+  let horaLlegada = null;
+  if (body.horaLlegada !== undefined && body.horaLlegada !== null && body.horaLlegada !== '') {
+    if (typeof body.horaLlegada !== 'string' || !/^([01]\d|2[0-3]):00$/.test(body.horaLlegada.trim())) {
+      throw invalido('La hora de llegada debe ser una franja horaria en punto, de 00:00 a 23:00.');
+    }
+    horaLlegada = body.horaLlegada.trim();
+  }
+  // Pedidos especiales (opcional): cuna, piso alto, celebración...
+  let observaciones = null;
+  if (body.observaciones !== undefined && body.observaciones !== null && body.observaciones !== '') {
+    if (typeof body.observaciones !== 'string' || body.observaciones.trim().length > 255) {
+      throw invalido('Las observaciones admiten hasta 255 caracteres.');
+    }
+    observaciones = body.observaciones.trim();
+  }
   const desde = texto('desde', 'La fecha de ingreso', 10);
   const hasta = texto('hasta', 'La fecha de salida', 10);
   for (const value of [desde, hasta]) {
@@ -42,7 +59,7 @@ function validarSolicitud(body = {}) {
   if (!Number.isInteger(tipoId) || tipoId <= 0) throw invalido('Elegí un tipo de habitación válido.');
   if (!Number.isInteger(huespedes) || huespedes < 1 || huespedes > 20) throw invalido('La cantidad de huéspedes debe estar entre 1 y 20.');
   if (!Number.isFinite(precioEsperado) || precioEsperado <= 0) throw invalido('Volvé a consultar el precio de la habitación.');
-  return { requestId, nombre, apellido, tipoDocumento, documento, email, telefono, desde, hasta, tipoId, huespedes, precioEsperado };
+  return { requestId, nombre, apellido, tipoDocumento, documento, email, telefono, desde, hasta, tipoId, huespedes, precioEsperado, horaLlegada, observaciones };
 }
 
 async function crearReservaWeb(body) {
@@ -92,14 +109,14 @@ async function crearReservaWeb(body) {
         if (!rate) throw conflicto('La tarifa ya no está disponible. Volvé a consultar.');
         const [reserva] = await tx.$queryRaw`INSERT INTO reservation
           (reservation_code, guest_id, room_id, check_in_date, check_out_date, adults, children,
-           price_per_night, rate_id, policy_id, reservation_status, reservation_source, employees_id, pending_expires_at)
+           price_per_night, rate_id, policy_id, reservation_status, reservation_source, employees_id, pending_expires_at, arrival_time, observations)
           VALUES ('', ${guest.guest_id}, ${room.room_id}, ${datos.desde}::date, ${datos.hasta}::date, ${datos.huespedes}, 0,
             ${room.price_per_night}, ${rate.rate_id}, ${policy.policy_id}, 'PENDIENTE', 'WEB', ${env.DEFAULT_EMPLOYEE_ID},
-            CURRENT_TIMESTAMP + INTERVAL '24 hours') RETURNING reservation_id, reservation_code, total_amount, pending_expires_at`;
+            CURRENT_TIMESTAMP + INTERVAL '24 hours', ${datos.horaLlegada || null}::time, ${datos.observaciones || null}) RETURNING reservation_id, reservation_code, total_amount, pending_expires_at`;
         const confirmation = {
           codigo: reserva.reservation_code, nombre: datos.nombre, apellido: datos.apellido,
           email: datos.email, telefono: datos.telefono, tipo: room.room_type_name, desde: datos.desde,
-          hasta: datos.hasta, huespedes: datos.huespedes, noches: Number(room.nights),
+          hasta: datos.hasta, hora_llegada: datos.horaLlegada, huespedes: datos.huespedes, noches: Number(room.nights),
           precio_por_noche: Number(room.price_per_night), total: Number(reserva.total_amount), moneda: rate.currency,
           estado: 'PENDIENTE', vence: reserva.pending_expires_at.toISOString(),
         };

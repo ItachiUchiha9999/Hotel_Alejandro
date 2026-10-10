@@ -7,13 +7,15 @@ import { api } from '@/lib/api';
 import { Button, Input, Select, InfoBox } from '@/components/ui';
 
 type Seleccion = { desde: string; hasta: string; huespedes: number; tipo_id: number; tipo: string; precio_por_noche: number; noches: number; total: number };
-type Confirmacion = { codigo: string; email: string; tipo: string; desde: string; hasta: string; huespedes: number; noches: number; total: number; moneda: string; estado: string; vence: string; correo: string };
+type Confirmacion = { codigo: string; email: string; tipo: string; desde: string; hasta: string; hora_llegada?: string | null; huespedes: number; noches: number; total: number; moneda: string; estado: string; vence: string; correo: string };
 const STORAGE = 'hotelAlejandro.seleccionECO01';
 const BORRADOR = 'hotelAlejandro.solicitudECO02';
 const EXITO = 'hotelAlejandro.confirmacionECO02';
 const monto = (value: number, currency = 'ARS') => new Intl.NumberFormat('es-AR', { style: 'currency', currency }).format(value);
 const fecha = (value: string) => new Date(value.slice(0, 10) + 'T12:00:00').toLocaleDateString('es-AR');
-const campos = { nombre: '', apellido: '', tipoDocumento: 'DNI', documento: '', email: '', telefono: '' };
+const campos = { nombre: '', apellido: '', tipoDocumento: 'DNI', documento: '', email: '', telefono: '', horaLlegada: '', observaciones: '' };
+// Franjas de la hora de llegada, de una hora en una hora.
+const HORARIOS_LLEGADA = Array.from({ length: 24 }, (_, indice) => `${String(indice).padStart(2, '0')}:00`);
 
 export function ReservaPublica() {
   const mounted = useSyncExternalStore(suscribir, () => true, () => false);
@@ -97,6 +99,7 @@ function FormularioReservaPublica() {
         <dl className="grid gap-4 sm:grid-cols-2">
           <div><dt className="text-xs text-carbon/60">Habitación</dt><dd>{confirmacion.tipo}</dd></div>
           <div><dt className="text-xs text-carbon/60">Estadía</dt><dd>{fecha(confirmacion.desde)} al {fecha(confirmacion.hasta)}</dd></div>
+          {confirmacion.hora_llegada && <div><dt className="text-xs text-carbon/60">Hora de llegada estimada</dt><dd>{confirmacion.hora_llegada}</dd></div>}
           <div><dt className="text-xs text-carbon/60">Huéspedes y noches</dt><dd>{confirmacion.huespedes} huéspedes · {confirmacion.noches} noches</dd></div>
           <div><dt className="text-xs text-carbon/60">Total de alojamiento</dt><dd>{monto(confirmacion.total, confirmacion.moneda)}</dd></div>
         </dl>
@@ -112,6 +115,12 @@ function FormularioReservaPublica() {
             <label className="text-sm">Documento<Input className="mt-2" required maxLength={30} value={datos.documento} onChange={e => setDatos({ ...datos, documento: e.target.value })} /></label>
             <label className="text-sm sm:col-span-2">Correo electrónico<Input className="mt-2" required type="email" maxLength={150} autoComplete="email" value={datos.email} onChange={e => setDatos({ ...datos, email: e.target.value })} /></label>
             <label className="text-sm sm:col-span-2">Teléfono<Input className="mt-2" required type="tel" maxLength={30} autoComplete="tel" value={datos.telefono} onChange={e => setDatos({ ...datos, telefono: e.target.value })} /></label>
+            <div className="sm:col-span-2 rounded-xl border border-line bg-[#fbfaf7] p-4">
+              <p className="font-serif text-xl">Tu hora de llegada</p>
+              <p className="mt-1 text-sm text-carbon/60">Puedes hacer el check-in entre las 10:00 y las 12:00</p>
+              <label className="mt-4 block text-sm">Franja horaria estimada<Select className="mt-2" required value={datos.horaLlegada} onChange={e => setDatos({ ...datos, horaLlegada: e.target.value })}><option value="" disabled>Elegí tu hora de llegada</option>{HORARIOS_LLEGADA.map((horario, indice) => <option key={horario} value={horario}>{horario} - {HORARIOS_LLEGADA[(indice + 1) % HORARIOS_LLEGADA.length]}</option>)}</Select></label>
+            </div>
+            <label className="sm:col-span-2 text-sm">Pedidos especiales <span className="text-carbon/45">(opcional)</span><textarea className="mt-2 h-24 w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/60" maxLength={255} placeholder="Ej.: cuna, piso alto, celebración. Lo confirmamos al momento del check-in." value={datos.observaciones} onChange={e => setDatos({ ...datos, observaciones: e.target.value })} /></label>
           </fieldset>
           <p className="mt-6 text-sm text-carbon/60">El pago se realiza en el hotel. La reserva queda pendiente por hasta 24 horas, a la espera de confirmación.</p>
           {solicitudPendiente && !guardando && <p role="status" className="mt-4 text-sm">No recibimos la confirmación. Reintentá con los mismos datos para recuperar el resultado.</p>}
