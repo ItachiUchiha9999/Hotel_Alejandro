@@ -11,6 +11,26 @@ y la especificación de HU-9 en `docs/HU-9_HAB-06_Housekeeping.md`.
 
 ---
 
+## Trabajar en equipo: rama `develop`
+
+La rama de integración del equipo es **`develop`**: lo que se sube ahí
+es lo que usan todos.
+
+- **Primera vez (clonar):**
+  `git clone -b develop https://github.com/ItachiUchiha9999/Hotel_Alejandro.git`
+- **Traer los cambios:** `git checkout develop` y después
+  `git pull origin develop`.
+- **Después de actualizar:** `npm.cmd ci` en `backend` y en `frontend`,
+  y `npx.cmd prisma generate` en `backend`. Si llegó un parche nuevo
+  numerado en `database/`, aplicalo a tu base antes de arrancar
+  (ver "Puesta en marcha").
+- **Subir tu trabajo:** hacé un branch por tu tarea
+  (`git checkout -b feature/nombre`), comití y abrí un pull request
+  hacia `develop` para revisión. No cometís directo a `develop`
+  si hay revisión por pares acordada.
+
+---
+
 ## Puesta en marcha
 
 Requisitos: Node.js 20.9 o superior, npm y PostgreSQL 17. Ejecutá los pasos
@@ -72,6 +92,17 @@ Configurar SMTP en `backend/.env` para enviar las confirmaciones. Ver `docs/ECO-
 Para REP-07, las instalaciones nuevas aplican automáticamente
 `database/19_reporte_egresos.sql`. En bases existentes, ejecutar ese script una
 vez para crear las tablas de gastos operativos usadas por el reporte.
+
+Para agregar la hora de llegada estimada y los pedidos especiales de la
+reserva web, ejecutá
+`psql -v ON_ERROR_STOP=1 -U postgres -d sistema_hotelero_db -f database/20_reserva_hora_llegada.sql`.
+Agrega la columna `reservation.arrival_time`; es incremental y no
+toca datos existentes. Después corré `npx prisma generate` desde
+`backend` para actualizar el cliente de Prisma.
+
+Para cargar datos de ejemplo del módulo Reportes/Egresos (idempotente,
+no duplica nada): `node scripts/seed-egresos.js` desde `backend/`.
+Con `--limpiar` borra solo los ejemplos.
 
 ### 2. Backend
 

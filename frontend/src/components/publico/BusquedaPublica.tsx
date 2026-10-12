@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowRight, ArrowUpRight, CalendarDays, ChevronDown, Compass, MapPin, ShieldCheck, Users } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, CalendarDays, CarFront, ChevronDown, Coffee, Compass, ConciergeBell, Flame, Mail, MapPin, Phone, ShieldCheck, Users, Waves, Wifi } from "lucide-react";
 import { Button, InfoBox, Input } from "@/components/ui";
 import { GaleriaHabitaciones } from "@/components/publico/GaleriaHabitaciones";
 
@@ -54,6 +54,27 @@ export function BusquedaPublica() {
       </form>{error && <div className="mt-4"><InfoBox tipo="error">{error}</InfoBox></div>}
     </div></section>
     <GaleriaHabitaciones />
+    <section id="servicios" className="mx-auto max-w-7xl scroll-mt-8 px-5 py-16 md:px-10 md:py-24">
+      <div className="mb-10 max-w-2xl">
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[.24em] text-[#a67d4b]">Tu estadía completa</p>
+        <h2 className="font-serif text-3xl uppercase leading-tight tracking-wide text-[#26343a] sm:text-4xl">Servicios del hotel</h2>
+        <p className="mt-4 text-sm leading-7 text-carbon/65 sm:text-base">Pensado para que solo te ocupes de disfrutar: desayuno, descanso y todo lo que necesitas a pocos pasos.</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {([
+          { icono: Coffee, titulo: "Desayuno incluido", detalle: "Desayuno salteño con productos regionales, servido cada mañana." },
+          { icono: Wifi, titulo: "Wi-Fi gratuito", detalle: "Conexión en todas las habitaciones y áreas comunes." },
+          { icono: Waves, titulo: "Pileta exterior", detalle: "Pileta al aire libre para relajarse después de recorrer la ciudad." },
+          { icono: ConciergeBell, titulo: "Recepción 24 hs", detalle: "Atención permanente para consultas, traslados y recomendaciones." },
+          { icono: CarFront, titulo: "Estacionamiento", detalle: "Espacio de estacionamiento para huéspedes, sujeto a disponibilidad." },
+          { icono: Flame, titulo: "Calefacción", detalle: "Habitaciones calefaccionadas para las noches frías de la montaña." },
+        ] as const).map(servicio => <div key={servicio.titulo} className="rounded-2xl border border-[#e8e0d4] bg-white p-6">
+          <span className="grid h-11 w-11 place-items-center rounded-full bg-[#f3eadb] text-[#a67d4b]"><servicio.icono size={20}/></span>
+          <h3 className="mt-5 font-serif text-lg">{servicio.titulo}</h3>
+          <p className="mt-2 text-sm leading-6 text-carbon/60">{servicio.detalle}</p>
+        </div>)}
+      </div>
+    </section>
     <section id="resultados" className="mx-auto max-w-7xl px-5 py-16 md:px-10 md:py-24">
       <div className="grid gap-10 md:grid-cols-[.85fr_1.15fr] md:items-center"><div><p className="text-[10px] font-semibold uppercase tracking-[.22em] text-[#a67d4b]">Descanso con esencia salteña</p><h2 className="mt-3 max-w-sm font-serif text-3xl leading-tight sm:text-4xl">Una estadía que empieza con una buena elección.</h2><p className="mt-4 max-w-md text-sm leading-7 text-carbon/60">Consultá la disponibilidad para tus fechas. Vas a ver opciones reales, capacidad y el precio estimado de tu estadía.</p><div className="mt-6 flex items-center gap-3 text-xs text-carbon/55"><ShieldCheck size={17} className="text-[#a67d4b]"/> Información clara antes de elegir.</div></div>
         <div className="grid gap-4 sm:grid-cols-2"><div className="rounded-2xl bg-[#e9e1d5] p-6 sm:p-7"><span className="grid h-10 w-10 place-items-center rounded-full bg-white/70 text-[#9b7548]"><CalendarDays size={18}/></span><p className="mt-8 font-serif text-xl">Tus fechas</p><p className="mt-2 text-sm leading-6 text-carbon/60">Ingresá llegada y salida para consultar opciones disponibles.</p></div><div className="rounded-2xl bg-[#e5e9e2] p-6 sm:p-7 sm:translate-y-8"><span className="grid h-10 w-10 place-items-center rounded-full bg-white/75 text-[#647762]"><Users size={18}/></span><p className="mt-8 font-serif text-xl">Tu espacio</p><p className="mt-2 text-sm leading-6 text-carbon/60">La capacidad de cada habitación se ajusta a tu grupo.</p></div></div>
@@ -72,12 +93,13 @@ export function BusquedaPublica() {
         </section>
         <section className="grid gap-8 sm:grid-cols-2">
           <div>
-            <h2 className="font-serif text-xl uppercase tracking-wide">Ubicación</h2>
-            <div className="mt-6 flex items-start gap-3 text-sm leading-6 text-bone/70">
-              <MapPin size={17} className="mt-1 shrink-0 text-[#e5a166]"/>
-              <p>Salta Capital<br/>Provincia de Salta, Argentina</p>
+            <h2 className="font-serif text-xl uppercase tracking-wide">Contacto y ubicación</h2>
+            <div className="mt-6 space-y-4 text-sm leading-6 text-bone/70">
+              <p className="flex items-start gap-3"><MapPin size={17} className="mt-1 shrink-0 text-[#e5a166]"/><span>Salta Capital<br/>Provincia de Salta, Argentina</span></p>
+              <a href="tel:+543874001234" className="flex items-center gap-3 transition hover:text-[#e5a166]"><Phone size={17} className="shrink-0 text-[#e5a166]"/>+54 387 400-1234</a>
+              <a href="mailto:reservas@hotelalejandro.com" className="flex items-center gap-3 transition hover:text-[#e5a166]"><Mail size={17} className="shrink-0 text-[#e5a166]"/>reservas@hotelalejandro.com</a>
             </div>
-            <p className="mt-3 pl-8 text-xs leading-5 text-bone/45">Consultá disponibilidad para planificar tu estadía.</p>
+            <p className="mt-4 pl-8 text-xs leading-5 text-bone/45">Consultá disponibilidad para planificar tu estadía.</p>
           </div>
           <div>
             <h2 className="font-serif text-xl uppercase tracking-wide">Tu estadía</h2>

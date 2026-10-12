@@ -603,6 +603,9 @@ model reservation {
   total_amount Decimal? @db.Decimal(14, 2)
   reservation_status String @default("CONFIRMADA") @db.VarChar(20)
   reservation_source String @default("RECEPCION") @db.VarChar(40)
+  /// Hora de llegada estimada elegida por el huésped en la reserva web (franja, ej. "14:00").
+  /// La base la guarda como TIME; Prisma la lee como DateTime (1970-01-01 + hora).
+  arrival_time DateTime? @db.Time(6)
   observations String? @db.VarChar(255)
   employees_id Int
   creation_date DateTime @default(now()) @db.Timestamptz(6)

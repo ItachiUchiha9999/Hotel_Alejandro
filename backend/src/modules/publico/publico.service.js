@@ -49,6 +49,14 @@ function calcularPenalidad(policy, checkInDate, total, ahora = new Date()) {
   return { porcentaje, importe: Math.round(Number(total) * porcentaje) / 100 };
 }
 
+// Prisma lee TIME como DateTime (1970-01-01 + hora en UTC).
+function horaLlegada(valor) {
+  if (!valor) return null;
+  const fecha = valor instanceof Date ? valor : new Date(valor);
+  if (Number.isNaN(fecha.getTime())) return null;
+  return `${String(fecha.getUTCHours()).padStart(2, '0')}:${String(fecha.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 async function reservaVerificada(tx, codigo, documento, lock = false) {
   const { code, doc } = credenciales(codigo, documento);
   if (lock) await tx.$queryRaw`SELECT reservation_id FROM "reservation" WHERE reservation_code = ${code} FOR UPDATE`;
@@ -108,6 +116,7 @@ async function consultarReserva(codigo, documento) {
     documento: `${reserva.guest.document_type} ${reserva.guest.document_number}`,
     fecha_ingreso: reserva.check_in_date,
     fecha_salida: reserva.check_out_date,
+    hora_llegada: horaLlegada(reserva.arrival_time),
     huespedes: reserva.adults + reserva.children,
     habitacion: reserva.room.room_number,
     tipo_habitacion: reserva.room.room_type.room_type_name,

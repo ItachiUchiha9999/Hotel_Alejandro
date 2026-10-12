@@ -6,3 +6,4 @@
 \ir 17_tarifas_edicion_estado.sql
 \ir 18_reservas_web.sql
 \ir 19_reporte_egresos.sql
+\ir 20_reserva_hora_llegada.sql
