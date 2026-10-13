@@ -8,7 +8,8 @@
  * viviendo en /reservas/nueva; esta pantalla no la reemplaza.
  */
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
@@ -133,7 +134,6 @@ export default function ReservasPage() {
   const [reservaCancelar, setReservaCancelar] = useState<Reserva | null>(null);
   const [reservaConfirmar, setReservaConfirmar] = useState<Reserva | null>(null);
   const [reservaPago, setReservaPago] = useState<Reserva | null>(null);
-  const [menuAccionesAbierto, setMenuAccionesAbierto] = useState<number | null>(null);
 
   const cargar = useCallback(async (signal?: AbortSignal) => {
     setCargando(true);
@@ -305,60 +305,19 @@ export default function ReservasPage() {
                       </span>
                     )}
                   </TD>
-                  <TD className="text-center">
-                    {!["PENDIENTE", "CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(r.reservation_status) ? (
-                      <span className="block text-right text-xs text-carbon/45">Sin acciones</span>
-                    ) : (
-                      <details className="mx-auto w-44 text-left" open={menuAccionesAbierto === r.reservation_id}>
-                        <summary
-                          aria-label={`Acciones para reserva ${r.reservation_code}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setMenuAccionesAbierto((abierto) => abierto === r.reservation_id ? null : r.reservation_id);
-                          }}
-                          className="mx-auto flex h-9 w-10 cursor-pointer list-none items-center justify-center rounded-md border border-line bg-white text-lg leading-none text-carbon/70 shadow-sm transition-colors hover:bg-bone hover:text-carbon focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-carbon [&::-webkit-details-marker]:hidden"
-                        >
-                          <span aria-hidden="true">⋯</span>
-                        </summary>
-                        <div className="mt-2 flex w-full flex-col gap-1 rounded-lg border border-line bg-white p-1.5 text-left shadow-lg">
-                          {r.reservation_status === "PENDIENTE" && (
-                            <Button tamano="sm" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaConfirmar(r); }} aria-label={`Confirmar reserva ${r.reservation_code}`}>
-                              Confirmar
-                            </Button>
-                          )}
-                          {["PENDIENTE", "CONFIRMADA"].includes(r.reservation_status) && (
-                            <>
-                              <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaEditar(r); }} aria-label={`Modificar reserva ${r.reservation_code}`}>
-                                Modificar
-                              </Button>
-                              <Button tamano="sm" variante="peligro" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaCancelar(r); }} aria-label={`Cancelar reserva ${r.reservation_code}`}>
-                                Cancelar reserva
-                              </Button>
-                            </>
-                          )}
-                          {r.reservation_status === "CONFIRMADA" && yaLlegoLaFecha(r.check_in_date) && (
-                            <Button tamano="sm" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaCheckIn(r); }} aria-label={`Registrar check-in de ${r.reservation_code}`}>
-                              Check-in
-                            </Button>
-                          )}
-                          {r.reservation_status === "IN_HOUSE" && (
-                            <>
-                              <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaHuespedes(r); }} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
-                                Huéspedes
-                              </Button>
-                              <Button tamano="sm" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaCheckOut(r); }} aria-label={`Registrar check-out de ${r.reservation_code}`}>
-                                Check-out
-                              </Button>
-                            </>
-                          )}
-                          {["IN_HOUSE", "FINALIZADA"].includes(r.reservation_status) && (
-                            <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={() => { setMenuAccionesAbierto(null); setReservaPago(r); }}>
-                              Cobros
-                            </Button>
-                          )}
-                        </div>
-                      </details>
-                    )}
+                  <TD className="align-middle !text-center">
+                    <div className="flex items-center justify-center">
+                      <MenuAcciones
+                        reserva={r}
+                        onConfirmar={() => setReservaConfirmar(r)}
+                        onEditar={() => setReservaEditar(r)}
+                        onCancelar={() => setReservaCancelar(r)}
+                        onCheckIn={() => setReservaCheckIn(r)}
+                        onHuespedes={() => setReservaHuespedes(r)}
+                        onCheckOut={() => setReservaCheckOut(r)}
+                        onPago={() => setReservaPago(r)}
+                      />
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -453,6 +412,166 @@ export default function ReservasPage() {
         />
       )}
       {reservaPago && <ModalPagosAlojamiento reserva={reservaPago} onCerrar={() => setReservaPago(null)} onPagoRegistrado={() => setMensaje(`Pago de alojamiento registrado para ${reservaPago.reservation_code}.`)} />}
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Menú de acciones por fila.
+ * Se dibuja en document.body con position: fixed, así no lo recorta el
+ * overflow de la tabla/tarjeta (antes se cortaba en las últimas filas).
+ * Si abajo no hay lugar, se abre hacia arriba.
+ * ------------------------------------------------------------------------- */
+
+const ANCHO_MENU = 176; // w-44
+
+function MenuAcciones({
+  reserva: r,
+  onConfirmar,
+  onEditar,
+  onCancelar,
+  onCheckIn,
+  onHuespedes,
+  onCheckOut,
+  onPago,
+}: {
+  reserva: Reserva;
+  onConfirmar: () => void;
+  onEditar: () => void;
+  onCancelar: () => void;
+  onCheckIn: () => void;
+  onHuespedes: () => void;
+  onCheckOut: () => void;
+  onPago: () => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const calcularPosicion = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const altoMenu = menuRef.current?.offsetHeight ?? 260;
+    const margen = 8;
+
+    // Centrado bajo el botón, sin salirse de la pantalla
+    const centrado = rect.left + rect.width / 2 - ANCHO_MENU / 2;
+    const left = Math.max(margen, Math.min(centrado, window.innerWidth - ANCHO_MENU - margen));
+
+    // Abre hacia abajo; si no entra, abre hacia arriba
+    let top = rect.bottom + 6;
+    if (top + altoMenu > window.innerHeight - margen) {
+      top = Math.max(margen, rect.top - altoMenu - 6);
+    }
+    setPos({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (abierto) calcularPosicion();
+    else setPos(null);
+  }, [abierto, calcularPosicion]);
+
+  useEffect(() => {
+    if (!abierto) return;
+    const cerrar = () => setAbierto(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cerrar(); };
+    window.addEventListener("resize", cerrar);
+    window.addEventListener("scroll", cerrar, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", cerrar);
+      window.removeEventListener("scroll", cerrar, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [abierto]);
+
+  const ejecutar = (accion: () => void) => () => {
+    setAbierto(false);
+    accion();
+  };
+
+  const estado = r.reservation_status;
+  if (!["PENDIENTE", "CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(estado)) {
+    return <span className="whitespace-nowrap text-xs text-carbon/45">Sin acciones</span>;
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-label={`Acciones para reserva ${r.reservation_code}`}
+        aria-haspopup="menu"
+        aria-expanded={abierto}
+        onClick={() => setAbierto((v) => !v)}
+        className={`flex h-9 w-10 cursor-pointer items-center justify-center rounded-md border bg-white text-lg leading-none shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-carbon ${
+          abierto
+            ? "border-gold bg-bone text-carbon ring-2 ring-gold/40"
+            : "border-line text-carbon/70 hover:bg-bone hover:text-carbon"
+        }`}
+      >
+        <span aria-hidden="true">⋯</span>
+      </button>
+
+      {abierto &&
+        createPortal(
+          <>
+            {/* Telón invisible para cerrar al hacer clic afuera */}
+            <div className="fixed inset-0 z-[60] cursor-default" onClick={() => setAbierto(false)} />
+
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{
+                position: "fixed",
+                top: pos?.top ?? 0,
+                left: pos?.left ?? 0,
+                width: ANCHO_MENU,
+                visibility: pos ? "visible" : "hidden",
+              }}
+              className="z-[70] flex flex-col gap-1 rounded-lg border border-line bg-white p-1.5 text-left shadow-lg"
+            >
+              {estado === "PENDIENTE" && (
+                <Button tamano="sm" className="w-full justify-start" onClick={ejecutar(onConfirmar)} aria-label={`Confirmar reserva ${r.reservation_code}`}>
+                  Confirmar
+                </Button>
+              )}
+              {["PENDIENTE", "CONFIRMADA"].includes(estado) && (
+                <>
+                  <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onEditar)} aria-label={`Modificar reserva ${r.reservation_code}`}>
+                    Modificar
+                  </Button>
+                  <Button tamano="sm" variante="peligro" className="w-full justify-start" onClick={ejecutar(onCancelar)} aria-label={`Cancelar reserva ${r.reservation_code}`}>
+                    Cancelar reserva
+                  </Button>
+                </>
+              )}
+              {estado === "CONFIRMADA" && yaLlegoLaFecha(r.check_in_date) && (
+                <Button tamano="sm" className="w-full justify-start" onClick={ejecutar(onCheckIn)} aria-label={`Registrar check-in de ${r.reservation_code}`}>
+                  Check-in
+                </Button>
+              )}
+              {estado === "IN_HOUSE" && (
+                <>
+                  <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onHuespedes)} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
+                    Huéspedes
+                  </Button>
+                  <Button tamano="sm" className="w-full justify-start" onClick={ejecutar(onCheckOut)} aria-label={`Registrar check-out de ${r.reservation_code}`}>
+                    Check-out
+                  </Button>
+                </>
+              )}
+              {["CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(estado) && (
+                <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onPago)}>
+                  Cobros
+                </Button>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
     </>
   );
 }
@@ -717,6 +836,22 @@ function ModalConfirmarReserva({ reserva, onCerrar, onExito }: {
  * Modal de confirmación — Check-in (RES-09)
  * ------------------------------------------------------------------------- */
 
+interface AcompananteForm {
+  personType: "ADULTO" | "MENOR";
+  documentType: string;
+  documentNumber: string;
+  firstName: string;
+  lastName: string;
+}
+
+const nuevoAcompanante = (personType: "ADULTO" | "MENOR"): AcompananteForm => ({
+  personType,
+  documentType: "DNI",
+  documentNumber: "",
+  firstName: "",
+  lastName: "",
+});
+
 function ModalCheckIn({
   reserva,
   onCerrar,
@@ -726,31 +861,82 @@ function ModalCheckIn({
   onCerrar: () => void;
   onExito: (actualizada: Reserva) => void;
 }) {
-  const [adultos, setAdultos] = useState(String(reserva.adults));
-  const [menores, setMenores] = useState(String(reserva.children));
-  const [companeros, setCompaneros] = useState<Array<{ personType: "ADULTO" | "MENOR"; documentType: string; documentNumber: string; firstName: string; lastName: string }>>([]);
+  const [adultos, setAdultos] = useState<number>(reserva.adults || 1);
+  const [menores, setMenores] = useState<number>(reserva.children || 0);
+
+  // Acompañantes requeridos: (adultos - 1 titular) + menores
+  const [companeros, setCompaneros] = useState<AcompananteForm[]>(() => {
+    const adultosExtra = Math.max(0, (reserva.adults || 1) - 1);
+    const menoresTotales = Math.max(0, reserva.children || 0);
+    return [
+      ...Array.from({ length: adultosExtra }, () => nuevoAcompanante("ADULTO")),
+      ...Array.from({ length: menoresTotales }, () => nuevoAcompanante("MENOR")),
+    ];
+  });
+
   const [observaciones, setObservaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Ajusta la cantidad de filas cuando recepción cambia adultos o menores
+  const actualizarAdultos = (nuevoTotal: number) => {
+    const cant = Math.max(1, Number.isFinite(nuevoTotal) ? nuevoTotal : 1);
+    setAdultos(cant);
+    setCompaneros((prev) => {
+      const menoresActuales = prev.filter((c) => c.personType === "MENOR");
+      const adultosActuales = prev.filter((c) => c.personType === "ADULTO");
+      const objetivo = cant - 1; // 1 es el titular
+      const nuevosAdultos =
+        adultosActuales.length < objetivo
+          ? [...adultosActuales, ...Array.from({ length: objetivo - adultosActuales.length }, () => nuevoAcompanante("ADULTO"))]
+          : adultosActuales.slice(0, objetivo);
+      return [...nuevosAdultos, ...menoresActuales];
+    });
+  };
+
+  const actualizarMenores = (nuevoTotal: number) => {
+    const cant = Math.max(0, Number.isFinite(nuevoTotal) ? nuevoTotal : 0);
+    setMenores(cant);
+    setCompaneros((prev) => {
+      const adultosActuales = prev.filter((c) => c.personType === "ADULTO");
+      const menoresActuales = prev.filter((c) => c.personType === "MENOR");
+      const nuevosMenores =
+        menoresActuales.length < cant
+          ? [...menoresActuales, ...Array.from({ length: cant - menoresActuales.length }, () => nuevoAcompanante("MENOR"))]
+          : menoresActuales.slice(0, cant);
+      return [...adultosActuales, ...nuevosMenores];
+    });
+  };
+
+  const modificarCompanero = (index: number, cambios: Partial<AcompananteForm>) =>
+    setCompaneros((prev) => prev.map((item, i) => (i === index ? { ...item, ...cambios } : item)));
+
+  const totalPersonas = adultos + menores;
+
   const confirmar = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (companeros.some((h) => !h.documentNumber.trim() || !h.firstName.trim() || !h.lastName.trim())) {
-      setError("Completá nombre, apellido y documento de cada huésped acompañante.");
-      return;
+
+    for (let i = 0; i < companeros.length; i++) {
+      const c = companeros[i];
+      if (!c.documentNumber.trim() || !c.firstName.trim() || !c.lastName.trim()) {
+        setError(`Completá todos los datos obligatorios del acompañante #${i + 1}.`);
+        return;
+      }
     }
-    if (companeros.filter((h) => h.personType === "ADULTO").length + 1 !== Number(adultos)
-      || companeros.filter((h) => h.personType === "MENOR").length !== Number(menores)) {
-      setError("La lista de huéspedes debe coincidir con la cantidad de adultos y menores. El titular cuenta como un adulto.");
-      return;
-    }
+
     setEnviando(true);
     try {
       const actualizada = await checkInReserva(reserva.reservation_id, {
-        actualAdults: adultos ? Number(adultos) : undefined,
-        actualChildren: menores ? Number(menores) : undefined,
-        guests: companeros,
+        actualAdults: adultos,
+        actualChildren: menores,
+        guests: companeros.map((c) => ({
+          personType: c.personType,
+          documentType: c.documentType.trim().toUpperCase(),
+          documentNumber: c.documentNumber.trim(),
+          firstName: c.firstName.trim(),
+          lastName: c.lastName.trim(),
+        })),
         observations: observaciones.trim() || undefined,
         employeeId: leerEmployeeId(),
       });
@@ -764,96 +950,177 @@ function ModalCheckIn({
   };
 
   return (
-    <ModalShell titulo={`Check-in — ${reserva.reservation_code}`} onCerrar={onCerrar}>
-      <form onSubmit={confirmar} noValidate className="space-y-4">
-        <p className="text-sm text-carbon/70">
-          {reserva.guest.last_name}, {reserva.guest.first_name} · Habitación {reserva.room.room_number}
-        </p>
-
-        {error && <InfoBox tipo="error">{error}</InfoBox>}
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Adultos" htmlFor="ci-adultos">
-            <Input
-              id="ci-adultos"
-              type="number"
-              min={1}
-              value={adultos}
-              disabled={enviando}
-              onChange={(e) => setAdultos(e.target.value)}
-            />
-          </Field>
-          <Field label="Menores" htmlFor="ci-menores">
-            <Input
-              id="ci-menores"
-              type="number"
-              min={0}
-              value={menores}
-              disabled={enviando}
-              onChange={(e) => setMenores(e.target.value)}
-            />
-          </Field>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-carbon/40 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCerrar();
+      }}
+    >
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-line bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-white px-6 py-4">
+          <div>
+            <h2 className="font-serif text-lg text-carbon">Check-in · {reserva.reservation_code}</h2>
+            <p className="text-xs text-carbon/60">
+              Habitación {reserva.room.room_number} · Capacidad total a registrar: {totalPersonas} personas
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-xl text-carbon/40 hover:bg-carbon/5"
+          >
+            ×
+          </button>
         </div>
 
-        <div className="space-y-3 rounded-lg border border-line p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-carbon">Huéspedes que ingresan</p>
-              <p className="text-xs text-carbon/55">Titular: {reserva.guest.first_name} {reserva.guest.last_name} · {reserva.guest.document_type} {reserva.guest.document_number}</p>
+        <form onSubmit={confirmar} noValidate className="space-y-5 p-6">
+          {error && <InfoBox tipo="error">{error}</InfoBox>}
+
+          {/* Titular */}
+          <div className="rounded-lg border border-line bg-bone/30 p-3.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-carbon/50">
+              Huésped Titular (Adulto 1)
+            </span>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-sm text-carbon">
+              <span className="font-medium">
+                {reserva.guest.first_name} {reserva.guest.last_name}
+              </span>
+              <span className="text-xs text-carbon/60">
+                {reserva.guest.document_type} {reserva.guest.document_number}
+              </span>
             </div>
-            <Button type="button" tamano="sm" variante="secundario" disabled={enviando} onClick={() => setCompaneros((prev) => [...prev, { personType: "ADULTO", documentType: "DNI", documentNumber: "", firstName: "", lastName: "" }])}>
-              + Agregar huésped
+          </div>
+
+          {/* Cantidades */}
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Total Adultos" htmlFor="ci-adultos" requerido>
+              <Input
+                id="ci-adultos"
+                type="number"
+                min={1}
+                value={adultos}
+                disabled={enviando}
+                onChange={(e) => actualizarAdultos(Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Total Menores" htmlFor="ci-menores" requerido>
+              <Input
+                id="ci-menores"
+                type="number"
+                min={0}
+                value={menores}
+                disabled={enviando}
+                onChange={(e) => actualizarMenores(Number(e.target.value))}
+              />
+            </Field>
+          </div>
+
+          {/* Acompañantes */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between border-b border-line pb-2">
+              <h3 className="text-sm font-semibold text-carbon">
+                Huéspedes acompañantes a registrar ({companeros.length})
+              </h3>
+              <span className="text-xs text-carbon/50">
+                Obligatorio para el registro legal de ocupantes
+              </span>
+            </div>
+
+            {companeros.length === 0 ? (
+              <p className="py-2 text-xs italic text-carbon/55">
+                El titular ingresa solo a la habitación. No se requieren acompañantes.
+              </p>
+            ) : (
+              companeros.map((huesped, index) => (
+                <div
+                  key={index}
+                  className="space-y-3 rounded-lg border border-line bg-white p-3.5 shadow-2xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-carbon">
+                      Acompañante #{index + 1}
+                    </span>
+                    <Badge tono={huesped.personType === "ADULTO" ? "info" : "activo"}>
+                      {huesped.personType === "ADULTO" ? "Adulto" : "Menor"}
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label="Tipo Documento" htmlFor={`doc-tipo-${index}`} requerido>
+                      <Select
+                        id={`doc-tipo-${index}`}
+                        value={huesped.documentType}
+                        disabled={enviando}
+                        onChange={(e) => modificarCompanero(index, { documentType: e.target.value })}
+                      >
+                        <option value="DNI">DNI</option>
+                        <option value="PASAPORTE">Pasaporte</option>
+                        <option value="CEDULA">Cédula</option>
+                        <option value="LC">LC</option>
+                        <option value="LE">LE</option>
+                      </Select>
+                    </Field>
+
+                    <Field label="Número Documento" htmlFor={`doc-num-${index}`} requerido>
+                      <Input
+                        id={`doc-num-${index}`}
+                        placeholder="Ej.: 40123456"
+                        value={huesped.documentNumber}
+                        disabled={enviando}
+                        onChange={(e) => modificarCompanero(index, { documentNumber: e.target.value })}
+                      />
+                    </Field>
+
+                    <Field label="Nombre" htmlFor={`nombre-${index}`} requerido>
+                      <Input
+                        id={`nombre-${index}`}
+                        placeholder="Nombre completo"
+                        value={huesped.firstName}
+                        disabled={enviando}
+                        onChange={(e) => modificarCompanero(index, { firstName: e.target.value })}
+                      />
+                    </Field>
+
+                    <Field label="Apellido" htmlFor={`apellido-${index}`} requerido>
+                      <Input
+                        id={`apellido-${index}`}
+                        placeholder="Apellido completo"
+                        value={huesped.lastName}
+                        disabled={enviando}
+                        onChange={(e) => modificarCompanero(index, { lastName: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Observaciones */}
+          <Field label="Observaciones de ingreso" htmlFor="ci-observaciones" ayuda="Opcional.">
+            <textarea
+              id="ci-observaciones"
+              rows={2}
+              value={observaciones}
+              disabled={enviando}
+              onChange={(e) => setObservaciones(e.target.value)}
+              placeholder="Notas de recepción, equipaje o requerimientos especiales..."
+              className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon placeholder:text-carbon/35 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/60 disabled:bg-bone/60"
+            />
+          </Field>
+
+          <div className="flex justify-end gap-3 border-t border-line pt-3">
+            <Button type="button" variante="secundario" onClick={onCerrar} disabled={enviando}>
+              Cancelar
+            </Button>
+            <Button type="submit" cargando={enviando}>
+              Confirmar ingreso y registrar huéspedes
             </Button>
           </div>
-          {companeros.map((huesped, index) => (
-            <div key={index} className="grid grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-2">
-              <Field label={`Huésped ${index + 2}`} htmlFor={`ci-tipo-${index}`}>
-                <Select id={`ci-tipo-${index}`} value={huesped.personType} disabled={enviando} onChange={(e) => setCompaneros((prev) => prev.map((item, i) => i === index ? { ...item, personType: e.target.value as "ADULTO" | "MENOR" } : item))}>
-                  <option value="ADULTO">Adulto</option><option value="MENOR">Menor</option>
-                </Select>
-              </Field>
-              <Field label="Tipo de documento" htmlFor={`ci-doc-tipo-${index}`}>
-                <Select id={`ci-doc-tipo-${index}`} value={huesped.documentType} disabled={enviando} onChange={(e) => setCompaneros((prev) => prev.map((item, i) => i === index ? { ...item, documentType: e.target.value } : item))}>
-                  <option value="DNI">DNI</option><option value="PASAPORTE">Pasaporte</option><option value="CEDULA">Cédula</option><option value="LC">LC</option><option value="LE">LE</option>
-                </Select>
-              </Field>
-              <Field label="Documento" htmlFor={`ci-doc-${index}`} requerido>
-                <Input id={`ci-doc-${index}`} value={huesped.documentNumber} disabled={enviando} onChange={(e) => setCompaneros((prev) => prev.map((item, i) => i === index ? { ...item, documentNumber: e.target.value } : item))} />
-              </Field>
-              <Field label="Nombre" htmlFor={`ci-nombre-${index}`} requerido>
-                <Input id={`ci-nombre-${index}`} value={huesped.firstName} disabled={enviando} onChange={(e) => setCompaneros((prev) => prev.map((item, i) => i === index ? { ...item, firstName: e.target.value } : item))} />
-              </Field>
-              <Field label="Apellido" htmlFor={`ci-apellido-${index}`} requerido>
-                <Input id={`ci-apellido-${index}`} value={huesped.lastName} disabled={enviando} onChange={(e) => setCompaneros((prev) => prev.map((item, i) => i === index ? { ...item, lastName: e.target.value } : item))} />
-              </Field>
-              <div className="flex items-end justify-end">
-                <Button type="button" tamano="sm" variante="secundario" disabled={enviando} onClick={() => setCompaneros((prev) => prev.filter((_, i) => i !== index))}>Quitar</Button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <Field label="Observaciones" htmlFor="ci-observaciones" ayuda="Opcional.">
-          <textarea
-            id="ci-observaciones"
-            rows={3}
-            value={observaciones}
-            disabled={enviando}
-            onChange={(e) => setObservaciones(e.target.value)}
-            className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon placeholder:text-carbon/35 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/60 disabled:cursor-not-allowed disabled:bg-bone/60"
-          />
-        </Field>
-
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variante="secundario" onClick={onCerrar} disabled={enviando}>
-            Cancelar
-          </Button>
-          <Button type="submit" cargando={enviando}>
-            Confirmar check-in
-          </Button>
-        </div>
-      </form>
-    </ModalShell>
+        </form>
+      </div>
+    </div>
   );
 }
 
