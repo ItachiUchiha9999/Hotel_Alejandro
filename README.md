@@ -135,9 +135,14 @@ npm.cmd run build
 npm.cmd run dev
 ```
 
-Queda en `http://localhost:3000`. Usuario de prueba: `admin` / `1234`.
+Queda en `http://localhost:3000`. Accesos de desarrollo: `admin`, `gerente`,
+`stock`, `gobernanza` o `recepción`; contraseña inicial `1234`. También se puede
+ingresar con el correo del empleado y la contraseña de su rol. Las contraseñas
+son compartidas por rol porque `rol_pass` pertenece a la tabla `roles`.
 `NEXT_PUBLIC_API_URL` debe apuntar al backend, sin `/api` al final. Si cambiás
 el puerto del frontend, agregá su origen a `CORS_ORIGINS` en `backend/.env`.
+El backend requiere `AUTH_TOKEN_SECRET`, una clave aleatoria de al menos 32
+caracteres (ver `backend/.env.example`). No uses la contraseña inicial en producción.
 
 Si aparece `@prisma/client did not initialize`, ejecutá `npx.cmd prisma generate`
 desde `backend`. Si aparece que una columna o tabla no existe, comprobá los

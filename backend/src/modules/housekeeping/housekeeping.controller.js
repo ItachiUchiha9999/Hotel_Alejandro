@@ -33,8 +33,7 @@ const historial = asyncHandler(async (req, res) => {
 const abrir = asyncHandler(async (req, res) => {
   const data = await service.abrir({
     ...req.body,
-    // Cuando exista el login real, acá va req.user.employees_id.
-    employees_id: req.body.employees_id ?? null,
+    employees_id: req.user?.employees_id ?? req.body.employees_id ?? null,
   });
   res.status(201).json({ ok: true, message: 'Bloqueo registrado.', data });
 });
@@ -42,7 +41,7 @@ const abrir = asyncHandler(async (req, res) => {
 const finalizar = asyncHandler(async (req, res) => {
   const data = await service.finalizar(req.params.id, {
     ...req.body,
-    employees_id: req.body?.employees_id ?? null,
+    employees_id: req.user?.employees_id ?? req.body?.employees_id ?? null,
   });
   res.json({
     ok: true,
@@ -56,7 +55,7 @@ const finalizar = asyncHandler(async (req, res) => {
 const marcarLimpia = asyncHandler(async (req, res) => {
   const data = await service.marcarLimpia(req.params.roomId, {
     ...req.body,
-    employees_id: req.body?.employees_id ?? null,
+    employees_id: req.user?.employees_id ?? req.body?.employees_id ?? null,
   });
   res.json({ ok: true, message: `Habitación ${data.room_number} lista para vender.`, data });
 });

@@ -42,8 +42,9 @@ El rango máximo es cinco años. Los cambios de fechas se aplican con el botón
 No requiere migraciones. Se agregó PDFKit para generar el PDF; Excel usa ExcelJS,
 ya existente. Ejecutar `npm.cmd ci` desde backend y reiniciar la API.
 `npm.cmd test` incluye casos de fechas, períodos parciales, variaciones, redondeos,
-períodos sin datos y exportaciones. El login del sistema continúa siendo simulado;
-este cambio no implementa permisos de gerente.
+períodos sin datos y exportaciones. El acceso administrativo se valida con el
+backend y restringe reportes según el rol; los reportes financieros quedan para
+ADMINISTRADOR.
 
 `node scripts/probar-ingresos.js` ejecuta la integración en una instancia temporal
 de PostgreSQL y la elimina al terminar, sin usar la base del `.env`. Requiere

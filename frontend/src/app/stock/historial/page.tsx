@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, EmptyState, InfoBox, Select, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
-import { api, ApiError, urlDescarga } from "@/lib/api";
+import { api, ApiError, authHeaders, urlDescarga } from "@/lib/api";
 import type { Deposito, Movimiento, TipoMovimiento } from "@/lib/types";
 
 const tonoPorEfecto = {
@@ -66,14 +66,30 @@ export default function HistorialMovimientosPage() {
     cargar();
   }, [cargar]);
 
-  function exportar() {
+  async function exportar() {
     const params = new URLSearchParams();
     if (origen) params.set("origen", origen);
     if (destino) params.set("destino", destino);
     if (tipo) params.set("tipo", tipo);
     if (desde) params.set("desde", desde);
     if (hasta) params.set("hasta", hasta);
-    window.open(urlDescarga(`/stock/movimientos/exportar?${params}`), "_blank");
+    try {
+      const respuesta = await fetch(urlDescarga(`/stock/movimientos/exportar?${params}`), { headers: authHeaders() });
+      if (!respuesta.ok) {
+        const cuerpo = await respuesta.json().catch(() => null);
+        throw new Error(cuerpo?.message ?? "No se pudo exportar el historial.");
+      }
+      const archivo = URL.createObjectURL(await respuesta.blob());
+      const enlace = document.createElement("a");
+      enlace.href = archivo;
+      enlace.download = `movimientos-stock-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(enlace);
+      enlace.click();
+      enlace.remove();
+      window.setTimeout(() => URL.revokeObjectURL(archivo), 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo exportar el historial.");
+    }
   }
 
   function limpiarFiltros() {

@@ -282,11 +282,6 @@ con la mitad de la API.
 
 ## Pendientes
 
-- **Login real (STK-06).** El acceso es una comparación fija contra `admin/1234` en
-  el cliente y la sesión es un flag en `localStorage`. Mientras tanto, los
-  movimientos se atribuyen al empleado de `DEFAULT_EMPLOYEE_ID`. Falta autenticar
-  contra la tabla `employees` con JWT y mover la contraseña de `roles` a
-  `employees`: hoy es por rol, o sea compartida entre personas.
 - **Selector de proveedor** en el alta de movimientos. El backend ya acepta y
   guarda `supplier_id`, pero el formulario todavía no lo ofrece.
 - **Movimientos multi-artículo.** La base lo soporta (`movement_stock_detail` es

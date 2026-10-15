@@ -29,6 +29,8 @@ const serviciosHabitacionRoutes = require('./modules/servicios-habitacion/servic
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
 const publicoRoutes = require('./modules/publico/publico.routes');
 const reportesRoutes = require('./modules/reportes/reportes.routes');
+const authRoutes = require('./modules/auth/auth.routes');
+const { autenticarYAutorizar } = require('./middlewares/autenticacion');
 
 const app = express();
 
@@ -41,6 +43,12 @@ app.use(express.json());
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, service: 'SIGH — Hotel Alejandro I', env: env.NODE_ENV })
 );
+
+// El inicio de sesión y las rutas de huéspedes son públicas; el resto de la API
+// exige una sesión válida y verifica los permisos del rol.
+app.use('/api/auth', authRoutes);
+app.use('/api/publico', publicoRoutes);
+app.use('/api', autenticarYAutorizar);
 
 app.use('/api/depositos', depositosRoutes);
 app.use('/api/articulos', articulosRoutes);
@@ -71,7 +79,6 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/ingresos', require('./modules/ingresos/ingresos.routes'));
 app.use('/api/egresos', require('./modules/egresos/egresos.routes'));
 app.use('/api/reportes', reportesRoutes);
-app.use('/api/publico', publicoRoutes);
 
 // ---------------------------------------------------------------------------
 // Alias en inglés.

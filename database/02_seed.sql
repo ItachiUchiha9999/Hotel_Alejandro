@@ -12,6 +12,7 @@ BEGIN;
 
 INSERT INTO Roles (rol_name, rol_pass, rol_description) VALUES
     ('ADMINISTRADOR',   '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Acceso total al sistema'),
+    ('GERENTE',         '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Supervisión operativa y reportes del hotel'),
     ('ENCARGADO_STOCK', '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Supervisión de compras y depósitos'),
     ('GOBERNANZA',      '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Blanco, amoblamiento y limpieza'),
     ('RECEPCION',       '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Consumos de minibar y amenities')
@@ -21,6 +22,7 @@ INSERT INTO Employees (rol_id, employees_name, employees_lastname, employees_ema
 SELECT r.rol_id, e.nombre, e.apellido, e.email, e.telefono
 FROM (VALUES
     ('ADMINISTRADOR',   'Carlos',  'Gómez',    'cgomez@hotelalejandro.com',    '+543874112233'),
+    ('GERENTE',         'Gerente', 'Hotel',    'gerente@hotelalejandro.com',  '+543874400000'),
     ('ENCARGADO_STOCK', 'Mariana', 'López',    'mlopez@hotelalejandro.com',    '+543874445566'),
     ('GOBERNANZA',      'Sonia',   'Martínez', 'smartinez@hotelalejandro.com', '+543874778899')
 ) AS e(rol, nombre, apellido, email, telefono)

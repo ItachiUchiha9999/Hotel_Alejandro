@@ -11,9 +11,9 @@ import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes, HTMLAttributes } fr
  *   </TBody>
  * </Table>
  */
-export function Table({ children, className }: { children: ReactNode; className?: string }) {
+export function Table({ children, className, scrollLabel }: { children: ReactNode; className?: string; scrollLabel?: string }) {
   return (
-    <div className="-mx-6 overflow-x-auto">
+    <div className="-mx-6 overflow-x-auto" tabIndex={scrollLabel ? 0 : undefined} role={scrollLabel ? "region" : undefined} aria-label={scrollLabel}>
       <table className={cn("w-full min-w-[36rem] border-collapse text-sm", className)}>
         {children}
       </table>

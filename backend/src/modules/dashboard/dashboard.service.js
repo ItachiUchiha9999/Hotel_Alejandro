@@ -18,6 +18,7 @@ const movimientosEntre = async (inicio, fin) => {
          'Alojamiento · ' || r.reservation_code AS detalle, rp.amount::numeric AS importe
   FROM "reservation_payment" rp JOIN "reservation" r ON r.reservation_id = rp.reservation_id
   WHERE rp.paid_at >= ${desdeLocal} AND rp.paid_at < ${hastaLocal}
+    AND COALESCE(rp.payment_reference, '') NOT LIKE 'SIMULADO WEB:%'
   UNION ALL
   SELECT TO_CHAR((c.paid_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date, 'YYYY-MM-DD') AS fecha, 'INGRESO' AS tipo,
          'Servicio · ' || c.service_name || ' · ' || r.reservation_code AS detalle, c.total_amount::numeric AS importe

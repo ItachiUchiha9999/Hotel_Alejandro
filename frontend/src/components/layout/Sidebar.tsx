@@ -5,10 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MODULOS, type ItemNavegacion } from "@/lib/navegacion";
 import { cn } from "@/lib/cn";
+import { puedeVerRuta, type RolSistema } from "@/lib/permisos";
 
 interface SidebarProps {
   abierto: boolean;
   onCerrar: () => void;
+  rol: RolSistema;
 }
 
 /** Ícono de menú. Antes venía de lucide-react, que no está instalado. */
@@ -26,10 +28,17 @@ function estaActivo(pathname: string, item: ItemNavegacion): boolean {
   return pathname === item.ruta || pathname.startsWith(`${item.ruta}/`);
 }
 
-export function Sidebar({ abierto, onCerrar }: SidebarProps) {
+export function Sidebar({ abierto, onCerrar, rol }: SidebarProps) {
   const pathname = usePathname();
   const [colapsado, setColapsado] = useState(false);
   const [expandidos, setExpandidos] = useState<Record<string, boolean>>({});
+  const modulosVisibles = MODULOS.flatMap((modulo) => {
+    if (modulo.hijos?.length) {
+      const hijos = modulo.hijos.filter((hijo) => puedeVerRuta(rol, hijo.ruta));
+      return hijos.length ? [{ ...modulo, hijos }] : [];
+    }
+    return puedeVerRuta(rol, modulo.ruta) ? [modulo] : [];
+  });
 
   return (
     <>
@@ -69,7 +78,7 @@ export function Sidebar({ abierto, onCerrar }: SidebarProps) {
         </div>
 
         <nav className="flex flex-col gap-1">
-          {MODULOS.map((modulo) => {
+          {modulosVisibles.map((modulo) => {
             const activo = estaActivo(pathname, modulo);
             const tieneHijos = Boolean(modulo.hijos?.length);
             const desplegado = expandidos[modulo.ruta] ?? activo;

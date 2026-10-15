@@ -8,8 +8,7 @@
  *
  * "Reportes" agrupa Saldo consolidado e Historial como acceso directo,
  * además de seguir estando disponibles dentro de "Stock" (mismas rutas,
- * dos puntos de entrada). Pendiente: ocultar este ítem para roles
- * distintos de ADMINISTRADOR una vez esté el login real conectado a roles.
+ * dos puntos de entrada). El menú filtra los ítems según el rol autenticado.
  *
  * Los ítems con hijos se renderizan como desplegable, no como enlace, así que
  * su `ruta` funciona solo como agrupador: /proveedores y /reportes no

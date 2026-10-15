@@ -5,7 +5,7 @@ import { Isotipo } from "./Isotipo";
 
 interface HeaderProps {
   onAbrirMenu: () => void;
-  usuario?: { iniciales: string; nombre: string };
+  usuario?: { iniciales: string; nombre: string; rol: string };
 }
 
 export function Header({ onAbrirMenu, usuario }: HeaderProps) {
@@ -15,6 +15,10 @@ export function Header({ onAbrirMenu, usuario }: HeaderProps) {
   // Función para borrar la sesión y volver al Login
   const handleCerrarSesion = () => {
     localStorage.removeItem("sesionIniciada");
+    localStorage.removeItem("tokenSesion");
+    localStorage.removeItem("rolUsuario");
+    localStorage.removeItem("employeeId");
+    localStorage.removeItem("usuarioNombre");
     router.push("/login");
   };
 
@@ -49,7 +53,7 @@ export function Header({ onAbrirMenu, usuario }: HeaderProps) {
         <button
           type="button"
           onClick={handleCerrarSesion}
-          title="Cerrar sesión"
+          title={`${usuario?.nombre ?? "Usuario"} · ${usuario?.rol ?? ""} · Cerrar sesión`}
           aria-label={`Cuenta de ${usuario?.nombre ?? "usuario"}`}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold text-sm font-semibold text-carbon transition-colors hover:bg-gold-dark hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
         >

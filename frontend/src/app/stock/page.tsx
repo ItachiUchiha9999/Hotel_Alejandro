@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { authHeaders } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const ELEMENTOS_POR_PAGINA = 10;
@@ -57,7 +58,7 @@ export default function StockPage() {
   useEffect(() => {
     const fetchDeposits = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/depositos`);
+        const res = await fetch(`${API_URL}/api/depositos`, { headers: authHeaders() });
         if (res.ok) {
           const result = await res.json();
           if (result.ok && Array.isArray(result.data)) {
@@ -89,7 +90,7 @@ export default function StockPage() {
             ? depositsList
             : [{ deposit_id: 1 }, { deposit_id: 2 }];
         const requests = activeDeposits.map((dep) =>
-          fetch(`${API_URL}/api/stock/deposito/${dep.deposit_id}`)
+          fetch(`${API_URL}/api/stock/deposito/${dep.deposit_id}`, { headers: authHeaders() })
             .then((res) => (res.ok ? res.json() : { ok: false, data: [] }))
             .catch(() => ({ ok: false, data: [] }))
         );
@@ -101,7 +102,7 @@ export default function StockPage() {
           }
         });
       } else {
-        const res = await fetch(`${API_URL}/api/stock/deposito/${depositId}`);
+        const res = await fetch(`${API_URL}/api/stock/deposito/${depositId}`, { headers: authHeaders() });
         if (res.ok) {
           const result = await res.json();
           if (result.ok) items = result.data;
@@ -273,7 +274,7 @@ export default function StockPage() {
     try {
       const res = await fetch(`${API_URL}/api/stock/movimientos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(payload),
       });
 
@@ -309,7 +310,7 @@ export default function StockPage() {
     try {
       const res = await fetch(`${API_URL}/api/stock/movimientos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(payload),
       });
 

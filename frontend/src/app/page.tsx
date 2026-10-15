@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Download, BedDouble, Calendar, ArrowRight, DollarSign, Percent } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, InfoBox, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
-import { api, urlDescarga, getReporteOcupacionTemporadas, type ReporteOcupacionTemporadas } from "@/lib/api";
+import { api, authHeaders, urlDescarga, getReporteOcupacionTemporadas, type ReporteOcupacionTemporadas } from "@/lib/api";
 import type { FilaSaldo, Movimiento } from "@/lib/types";
 
 type PeriodoFinanciero = "SEMANA" | "MES";
@@ -108,7 +108,7 @@ export default function InicioPage() {
     setErrorExportacion(null);
     try {
       const parametros = new URLSearchParams({ periodo, fecha: fechaFinanzas, formato });
-      const respuesta = await fetch(urlDescarga(`/dashboard/finanzas/exportar?${parametros}`));
+      const respuesta = await fetch(urlDescarga(`/dashboard/finanzas/exportar?${parametros}`), { headers: authHeaders() });
       if (!respuesta.ok) {
         const datos = await respuesta.json();
         throw new Error(datos.message ?? "No se pudo exportar el reporte.");
@@ -262,8 +262,8 @@ export default function InicioPage() {
               </TBody></Table>
             </section>
           </>}
-          {reporte && reporte.movimientos.length > 0 && <details className="mt-4 rounded-lg border border-line"><summary className="cursor-pointer px-4 py-3 text-sm font-medium text-carbon hover:bg-bone/30">Ver detalle de {reporte.movimientos.length} movimiento{reporte.movimientos.length === 1 ? "" : "s"}</summary><div className="border-t border-line"><Table><THead><TH>Fecha</TH><TH>Tipo</TH><TH>Detalle</TH><TH className="text-right">Importe</TH><TH /></THead><TBody>{reporte.movimientos.map((m, i) => <TR key={`${m.fecha}-${m.tipo}-${i}`}><TD className="whitespace-nowrap text-xs">{fechaCorta(m.fecha)}</TD><TD><Badge tono={m.tipo === "INGRESO" ? "activo" : "alerta"}>{m.tipo === "INGRESO" ? "Ingreso" : "Egreso"}</Badge></TD><TD>{m.detalle}</TD><TD className="text-right font-medium tabular-nums">{moneda(m.importe)}</TD><TD><Link className="text-xs text-carbon underline underline-offset-2" href={m.tipo === "INGRESO" ? "/reservas" : "/proveedores/ordenes-pago"}>{m.tipo === "INGRESO" ? "Reservas" : "Órdenes"}</Link></TD></TR>)}</TBody></Table></div></details>}
-          <p className="mt-3 rounded-md bg-bone/45 px-3 py-2 text-xs leading-5 text-carbon/55">Ingresos: alojamiento y cargos de habitación cobrados. Egresos: órdenes de pago confirmadas desde la fuente compartida con REP-07. Margen: resultado del período dividido por sus ingresos; si no hubo ingresos, no se calcula.</p>
+          {reporte && reporte.movimientos.length > 0 && <details className="mt-4 overflow-hidden rounded-lg border border-line"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-carbon hover:bg-bone/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-gold">Ver detalle de {reporte.movimientos.length} movimiento{reporte.movimientos.length === 1 ? "" : "s"}</summary><div className="border-t border-line"><Table scrollLabel="Detalle de movimientos financieros; desplazamiento horizontal disponible" className="table-fixed min-w-[52rem]"><THead><TH className="w-28 px-4 text-[#514d46]">Fecha</TH><TH className="w-32 px-4 text-[#514d46]">Tipo</TH><TH className="px-4 text-[#514d46]">Detalle</TH><TH className="w-40 px-4 text-right text-[#514d46]">Importe</TH><TH className="w-28 px-4 text-center text-[#514d46]">Acceso</TH></THead><TBody>{reporte.movimientos.map((m, i) => <TR key={`${m.fecha}-${m.tipo}-${i}`}><TD className="whitespace-nowrap px-4 py-2.5 text-sm tabular-nums">{fechaCorta(m.fecha)}</TD><TD className="px-4 py-2.5"><Badge tono={m.tipo === "INGRESO" ? "activo" : "alerta"}>{m.tipo === "INGRESO" ? "Ingreso" : "Egreso"}</Badge></TD><TD title={m.detalle} className="break-words px-4 py-2.5 text-sm leading-5">{m.detalle}</TD><TD className="whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums">{moneda(m.importe)}</TD><TD className="px-4 py-2.5 text-center"><Link aria-label={`Abrir ${m.tipo === "INGRESO" ? "reservas" : "órdenes de pago"}`} className="inline-flex rounded px-2 py-1 text-sm font-medium text-[#344b58] underline decoration-[#a67d4b] underline-offset-2 hover:text-[#17252a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#805b2d]" href={m.tipo === "INGRESO" ? "/reservas" : "/proveedores/ordenes-pago"}>{m.tipo === "INGRESO" ? "Reservas" : "Órdenes"}</Link></TD></TR>)}</TBody></Table></div></details>}
+          <p className="mt-3 rounded-md bg-bone/45 px-3 py-2 text-sm leading-6 text-[#514d46]">Ingresos: alojamiento y cargos de habitación cobrados. Egresos: órdenes de pago confirmadas desde la fuente compartida con REP-07. Margen: resultado del período dividido por sus ingresos; si no hubo ingresos, no se calcula.</p>
         </>}
       </Card>
 

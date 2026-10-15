@@ -12,6 +12,7 @@ router.post('/no-show/barrido', controller.barrerNoShows); // utilitario: listo 
 router.get('/', controller.listar);
 router.post('/', controller.crear);
 router.get('/:id/pagos-alojamiento', controller.pagosAlojamiento);
+router.get('/:id/cuenta', controller.estadoCuenta);
 router.post('/:id/pagos-alojamiento', controller.registrarPagoAlojamiento);
 router.get('/:id', controller.obtener);
 router.patch('/:id', controller.modificar);

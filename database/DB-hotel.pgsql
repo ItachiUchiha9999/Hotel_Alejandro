@@ -1251,6 +1251,7 @@ CREATE TABLE Reservation (
     cancelled_at       TIMESTAMPTZ,
     cancellation_reason VARCHAR(255),
     pending_expires_at TIMESTAMPTZ,
+    estimated_departure_time TIME,
 
     CONSTRAINT ck_reservation_dates   CHECK (check_out_date > check_in_date),
     CONSTRAINT ck_reservation_price   CHECK (price_per_night > 0),
@@ -2190,6 +2191,7 @@ ORDER BY rt.room_type_name, rr.valid_from DESC;
 
 INSERT INTO Roles (rol_name, rol_pass, rol_description) VALUES
     ('ADMINISTRADOR',   '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Acceso total al sistema'),
+    ('GERENTE',         '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Supervisión operativa y reportes del hotel'),
     ('ENCARGADO_STOCK', '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Supervisión de compras y depósitos'),
     ('GOBERNANZA',      '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Blanco, amoblamiento y limpieza'),
     ('RECEPCION',       '$2b$10$3euPcmQFCiblsZeEu5s7p.9OVHgeHWFxCiWFzoOOOOOOOOOOOOOOO', 'Reservas, check-in y check-out')
@@ -2199,6 +2201,7 @@ INSERT INTO Employees (rol_id, employees_name, employees_lastname, employees_ema
 SELECT r.rol_id, e.nombre, e.apellido, e.email, e.telefono
 FROM (VALUES
     ('ADMINISTRADOR',   'Carlos',  'Gómez',    'cgomez@hotelalejandro.com',    '+543874112233'),
+    ('GERENTE',         'Gerente', 'Hotel',    'gerente@hotelalejandro.com',  '+543874400000'),
     ('ENCARGADO_STOCK', 'Mariana', 'López',    'mlopez@hotelalejandro.com',    '+543874445566'),
     ('GOBERNANZA',      'Sonia',   'Martínez', 'smartinez@hotelalejandro.com', '+543874778899'),
     ('RECEPCION',       'Lucía',   'Ramírez',  'lramirez@hotelalejandro.com',  '+543874221100')
@@ -2293,7 +2296,8 @@ ON CONFLICT (voucher_type) DO NOTHING;
 INSERT INTO Payment_Method (payment_method, description, requires_reference) VALUES
     ('EFECTIVO',      'Pago en efectivo por caja',                            FALSE),
     ('TRANSFERENCIA', 'Transferencia bancaria: requiere número de operación',  TRUE),
-    ('CHEQUE',        'Cheque propio o de terceros: requiere número',          TRUE)
+    ('CHEQUE',        'Cheque propio o de terceros: requiere número',          TRUE),
+    ('TARJETA',       'Tarjeta de crédito o débito: requiere código de autorización', TRUE)
 ON CONFLICT (payment_method) DO NOTHING;
 
 INSERT INTO Expense_Category (expense_category_name, description) VALUES

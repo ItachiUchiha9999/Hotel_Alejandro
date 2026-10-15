@@ -606,6 +606,8 @@ model reservation {
   /// Hora de llegada estimada elegida por el huésped en la reserva web (franja, ej. "14:00").
   /// La base la guarda como TIME; Prisma la lee como DateTime (1970-01-01 + hora).
   arrival_time DateTime? @db.Time(6)
+  /// Hora estimada de salida indicada al reservar, también almacenada como TIME.
+  estimated_departure_time DateTime? @db.Time(6)
   observations String? @db.VarChar(255)
   employees_id Int
   creation_date DateTime @default(now()) @db.Timestamptz(6)

@@ -362,7 +362,7 @@ const checkIn = async (id, { employeeId, actualAdults, actualChildren, observati
   }, { isolationLevel: 'Serializable' });
 };
 
-const checkOut = async (id, { employeeId, settleServiceCharges = false, serviceChargeIds, pendingDetail, observations, paymentMethodId, paymentReference } = {}) => {
+const checkOut = async (id, { employeeId, settleServiceCharges = false, settleAccommodationBalance = false, expectedAccommodationBalance, serviceChargeIds, pendingDetail, observations, paymentMethodId, paymentReference } = {}) => {
   const reservationId = asId(id, 'La reserva');
   const empleado = asId(employeeId, 'El usuario');
 
@@ -380,7 +380,7 @@ const checkOut = async (id, { employeeId, settleServiceCharges = false, serviceC
     }
 
     const cargosAntesDeCerrar = await tx.$queryRaw`
-      SELECT charge_id FROM "room_service_charge"
+      SELECT charge_id, total_amount FROM "room_service_charge"
       WHERE reservation_id = ${reservationId} AND paid_at IS NULL
       ORDER BY charge_id`;
     if (Array.isArray(serviceChargeIds)) {
@@ -391,12 +391,37 @@ const checkOut = async (id, { employeeId, settleServiceCharges = false, serviceC
       }
     }
 
-    if (settleServiceCharges) {
+    const [pagosAlojamiento] = await tx.$queryRaw`
+      SELECT COALESCE(SUM(amount), 0)::numeric AS total
+      FROM "reservation_payment" WHERE reservation_id = ${reservationId}`;
+    const saldoAlojamiento = Math.max(0, Number(reserva.total_amount ?? 0) - Number(pagosAlojamiento.total));
+    if (expectedAccommodationBalance !== undefined) {
+      const saldoEsperado = Number(expectedAccommodationBalance);
+      if (!Number.isFinite(saldoEsperado) || saldoEsperado < 0 || Math.abs(saldoAlojamiento - saldoEsperado) > 0.001) {
+        throw conflicto('El folio cambió desde que lo consultaste. Cerrá esta ventana y volvé a abrir la cuenta para revisar los pagos actualizados.');
+      }
+    }
+
+    const cobraAlojamiento = settleAccommodationBalance && saldoAlojamiento > 0.001;
+    const cobraServicios = settleServiceCharges && cargosAntesDeCerrar.length > 0;
+    const referencia = String(paymentReference || '').trim();
+    if (referencia.length > 100) throw invalido('La referencia no puede superar los 100 caracteres.');
+    if (cobraAlojamiento || cobraServicios) {
       const metodoId = asId(paymentMethodId, 'El medio de pago');
       const metodo = await tx.payment_method.findUnique({ where: { payment_method_id: metodoId } });
       if (!metodo || !metodo.active) throw invalido('El medio de pago no existe o está inactivo.');
-      const referencia = String(paymentReference || '').trim();
       if (metodo.requires_reference && !referencia) throw invalido('Este medio de pago requiere número de referencia.');
+    }
+
+    if (cobraAlojamiento) {
+      const metodoId = asId(paymentMethodId, 'El medio de pago');
+      await tx.$executeRaw`
+        INSERT INTO "reservation_payment" (reservation_id, payment_method_id, amount, payment_reference, employees_id)
+        VALUES (${reservationId}, ${metodoId}, ${saldoAlojamiento}, ${referencia || null}, ${empleado})`;
+    }
+
+    if (settleServiceCharges && cargosAntesDeCerrar.length > 0) {
+      const metodoId = asId(paymentMethodId, 'El medio de pago');
       await tx.$executeRaw`
         UPDATE "room_service_charge"
         SET paid_at = CURRENT_TIMESTAMP, paid_by = ${empleado}, payment_method_id = ${metodoId}, payment_reference = ${referencia || null}
@@ -408,12 +433,17 @@ const checkOut = async (id, { employeeId, settleServiceCharges = false, serviceC
       WHERE reservation_id = ${reservationId} AND paid_at IS NULL
       ORDER BY charged_at, charge_id`;
     const totalServiciosPendientes = cargosPendientes.reduce((total, cargo) => total + Number(cargo.total_amount), 0);
-    const detalleServicios = cargosPendientes.length
-      ? `Servicios de habitación sin cobrar (${cargosPendientes.length}, total $${totalServiciosPendientes.toFixed(2)}): ${cargosPendientes.map((cargo) => `${cargo.quantity}× ${cargo.service_name}`).join(', ')}`
-      : null;
-    const tieneCargosPendientes = cargosPendientes.length > 0;
+    const saldoAlojamientoPendiente = cobraAlojamiento ? 0 : saldoAlojamiento;
+    const totalPendiente = saldoAlojamientoPendiente + totalServiciosPendientes;
+    const tieneCargosPendientes = totalPendiente > 0.001;
+    const detalleCuenta = [
+      saldoAlojamientoPendiente > 0.001 ? `Alojamiento pendiente: $${saldoAlojamientoPendiente.toFixed(2)}` : null,
+      cargosPendientes.length
+        ? `Servicios de habitación sin cobrar (${cargosPendientes.length}, total $${totalServiciosPendientes.toFixed(2)}): ${cargosPendientes.map((cargo) => `${cargo.quantity}× ${cargo.service_name}`).join(', ')}`
+        : null,
+    ].filter(Boolean).join('; ');
     if (tieneCargosPendientes && !String(pendingDetail || '').trim()) {
-      throw invalido('Indicá el motivo por el que los cargos de habitación quedan pendientes.');
+      throw invalido('Indicá el motivo por el que el saldo de la cuenta queda pendiente.');
     }
 
     try {
@@ -422,7 +452,7 @@ const checkOut = async (id, { employeeId, settleServiceCharges = false, serviceC
           reservation_id: reservationId,
           employees_id: empleado,
           pending_charges: tieneCargosPendientes,
-          pending_detail: tieneCargosPendientes ? `${String(pendingDetail).trim()} — ${detalleServicios}` : null,
+          pending_detail: tieneCargosPendientes ? `${String(pendingDetail).trim()} — ${detalleCuenta}` : null,
           observations: observations || null,
         },
       });
@@ -455,6 +485,56 @@ const pagosAlojamiento = async (id) => {
   const abonado = pagos.reduce((sum, pago) => sum + Number(pago.amount), 0);
   const total = Number(reserva.total_amount ?? 0);
   return { reservation_id: reservationId, total_alojamiento: total, abonado, saldo: Math.max(0, total - abonado), pagos };
+};
+
+const estadoCuenta = async (id) => {
+  const reservationId = asId(id, 'La reserva');
+  return prisma.$transaction(async (tx) => {
+    const reserva = await tx.reservation.findUnique({
+      where: { reservation_id: reservationId },
+      select: { reservation_id: true, total_amount: true },
+    });
+    if (!reserva) throw noEncontrado('La reserva no existe.');
+
+    const [pagos, cargos] = await Promise.all([
+      tx.$queryRaw`
+        SELECT rp.reservation_payment_id, rp.amount, rp.paid_at, rp.payment_reference,
+               pm.payment_method, e.employees_name, e.employees_lastname
+        FROM "reservation_payment" rp
+        JOIN "payment_method" pm ON pm.payment_method_id = rp.payment_method_id
+        JOIN "employees" e ON e.employees_id = rp.employees_id
+        WHERE rp.reservation_id = ${reservationId}
+        ORDER BY rp.paid_at DESC, rp.reservation_payment_id DESC`,
+      tx.$queryRaw`
+        SELECT c.charge_id, c.service_name, c.quantity, c.unit_price, c.total_amount,
+               c.charged_at, c.paid_at, c.payment_reference, pm.payment_method
+        FROM "room_service_charge" c
+        LEFT JOIN "payment_method" pm ON pm.payment_method_id = c.payment_method_id
+        WHERE c.reservation_id = ${reservationId}
+        ORDER BY c.charged_at, c.charge_id`,
+    ]);
+
+    const totalAlojamiento = Number(reserva.total_amount ?? 0);
+    const alojamientoAbonado = pagos.reduce((total, pago) => total + Number(pago.amount), 0);
+    const totalConsumos = cargos.reduce((total, cargo) => total + Number(cargo.total_amount), 0);
+    const consumosAbonados = cargos.reduce((total, cargo) => total + (cargo.paid_at ? Number(cargo.total_amount) : 0), 0);
+    const totalCuenta = totalAlojamiento + totalConsumos;
+    const totalAbonado = alojamientoAbonado + consumosAbonados;
+    return {
+      reservation_id: reservationId,
+      total_alojamiento: totalAlojamiento,
+      abonado_alojamiento: alojamientoAbonado,
+      saldo_alojamiento: Math.max(0, totalAlojamiento - alojamientoAbonado),
+      pagos_alojamiento: pagos,
+      total_consumos: totalConsumos,
+      consumos_abonados: consumosAbonados,
+      consumos_pendientes: Math.max(0, totalConsumos - consumosAbonados),
+      cargos,
+      total_cuenta: totalCuenta,
+      total_abonado: totalAbonado,
+      saldo_total: Math.max(0, totalCuenta - totalAbonado),
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 };
 
 const registrarPagoAlojamiento = async (id, { amount, paymentMethodId, paymentReference, employeeId } = {}) => {
@@ -510,13 +590,29 @@ const listar = async ({ estado, roomId, desde, hasta } = {}) => {
     include: incluir,
     orderBy: [{ check_in_date: 'desc' }, { reservation_id: 'desc' }],
   });
-  const pendientes = await prisma.$queryRaw`
-    SELECT reservation_id, pending_expires_at FROM "reservation"
-    WHERE pending_expires_at IS NOT NULL`;
+  const [pendientes, pagos] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT reservation_id, pending_expires_at FROM "reservation"
+      WHERE pending_expires_at IS NOT NULL`,
+    reservas.length ? prisma.$queryRaw`
+      SELECT rp.reservation_id,
+             COALESCE(SUM(rp.amount), 0)::numeric AS abonado,
+             STRING_AGG(DISTINCT pm.payment_method, ', ' ORDER BY pm.payment_method) AS medios_pago,
+             BOOL_OR(COALESCE(rp.payment_reference, '') LIKE 'SIMULADO WEB:%') AS pago_prueba
+      FROM "reservation_payment" rp
+      JOIN "payment_method" pm ON pm.payment_method_id = rp.payment_method_id
+      WHERE rp.reservation_id IN (${Prisma.join(reservas.map((r) => r.reservation_id))})
+      GROUP BY rp.reservation_id` : Promise.resolve([]),
+  ]);
   const vencimientos = new Map(pendientes.map((r) => [r.reservation_id, r.pending_expires_at]));
+  const pagosPorReserva = new Map(pagos.map((pago) => [pago.reservation_id, pago]));
   return reservas.map((reserva) => ({
     ...reserva,
     pending_expires_at: vencimientos.get(reserva.reservation_id) ?? null,
+    monto_abonado: Number(pagosPorReserva.get(reserva.reservation_id)?.abonado ?? 0),
+    saldo_alojamiento: Math.max(0, Number(reserva.total_amount ?? 0) - Number(pagosPorReserva.get(reserva.reservation_id)?.abonado ?? 0)),
+    medios_pago: pagosPorReserva.get(reserva.reservation_id)?.medios_pago ?? null,
+    pago_prueba: pagosPorReserva.get(reserva.reservation_id)?.pago_prueba ?? false,
   }));
 };
 
@@ -542,5 +638,5 @@ const barrerNoShows = async () => {
 
 module.exports = {
   crear, modificar, cancelar, confirmar, crearHold, liberarHold, catalogos, listarHuespedes, listarHabitaciones, expirarPendientes,
-  checkIn, checkOut, pagosAlojamiento, registrarPagoAlojamiento, listar, obtener, barrerNoShows,
+  checkIn, checkOut, pagosAlojamiento, estadoCuenta, registrarPagoAlojamiento, listar, obtener, barrerNoShows,
 };

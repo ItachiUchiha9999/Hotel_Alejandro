@@ -32,11 +32,19 @@ export function BusquedaPublica() {
     router.push("/web/disponibilidad?" + new URLSearchParams({ desde, hasta, huespedes }).toString());
   }
   return <main className="min-h-screen bg-[#f7f4ee] text-carbon">
-    <header className="relative z-10 border-b border-white/10 bg-[#202d33] text-bone"><div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-5 md:px-10">
-      <Link href="/web" aria-label="Hotel Alejandro I, inicio" className="shrink-0"><Image src="/logo-header.svg" alt="Hotel Alejandro I" width={210} height={40} priority/></Link>
-      <nav className="hidden items-center gap-9 text-[13px] tracking-wide text-bone/75 md:flex"><a href="#hotel" className="transition hover:text-gold-light">El hotel</a><a href="#habitaciones" className="transition hover:text-gold-light">Habitaciones</a><a href="#ubicacion" className="transition hover:text-gold-light">Salta</a></nav>
-      <Link href="/web/consulta" className="rounded-full border border-gold/60 px-4 py-2.5 text-xs font-medium tracking-wide text-bone transition hover:bg-gold hover:text-carbon sm:px-5 sm:text-sm">Mi reserva</Link>
-    </div></header>
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#202d33]/95 text-bone shadow-[0_8px_28px_#11191d30] backdrop-blur-md">
+      <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 md:h-[84px] md:px-10">
+        <Link href="/web" aria-label="Hotel Alejandro I, inicio" className="shrink-0 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#e5bd76]"><Image src="/logo-header.svg" alt="Hotel Alejandro I" width={230} height={44} priority className="h-auto w-[172px] sm:w-[200px] md:w-[220px]"/></Link>
+        <nav aria-label="Navegación principal" className="hidden items-center gap-2 text-sm text-white/85 md:flex">
+          <a href="#hotel" className="rounded-full px-4 py-2.5 transition hover:bg-white/8 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e5bd76]">El hotel</a>
+          <a href="#habitaciones" className="rounded-full px-4 py-2.5 transition hover:bg-white/8 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e5bd76]">Habitaciones</a>
+          <a href="#ubicacion" className="rounded-full px-4 py-2.5 transition hover:bg-white/8 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e5bd76]">Salta</a>
+        </nav>
+        <Link href="/web/consulta" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-gold px-4 text-sm font-semibold text-carbon shadow-sm transition hover:bg-[#e3bd78] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#f3d394] sm:px-5">
+          Mi reserva <ArrowRight size={15} aria-hidden="true"/>
+        </Link>
+      </div>
+    </header>
     <section id="hotel" className="relative isolate overflow-hidden bg-[#26343a] text-bone"><div className="absolute inset-0 opacity-75"><PaisajeSalta/></div><div className="absolute inset-0 bg-gradient-to-r from-[#1d292f]/95 via-[#1d292f]/80 to-[#1d292f]/10"/>
       <div className="relative mx-auto grid min-h-[510px] max-w-7xl items-center px-5 py-16 md:min-h-[570px] md:grid-cols-[1.08fr_.92fr] md:px-10 md:py-20">
         <div className="max-w-2xl"><div className="mb-7 inline-flex items-center gap-2 rounded-full border border-gold/30 bg-carbon/25 px-4 py-2 text-[11px] uppercase tracking-[.2em] text-gold-light"><MapPin size={13}/> Salta · Argentina</div><p className="mb-4 text-xs font-medium uppercase tracking-[.28em] text-white/60">Una pausa en el norte</p><h1 className="max-w-xl font-serif text-5xl leading-[1.04] tracking-tight sm:text-6xl lg:text-[72px]">Tu lugar para<br/><span className="italic text-[#e4bd82]">descubrir Salta.</span></h1>

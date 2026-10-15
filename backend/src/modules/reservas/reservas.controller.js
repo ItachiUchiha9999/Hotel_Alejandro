@@ -87,6 +87,8 @@ const checkOut = asyncHandler(async (req, res) => {
   const data = await service.checkOut(req.params.id, {
     employeeId: actor(req, req.body),
     settleServiceCharges: req.body.cobrarServicios ?? req.body.settleServiceCharges ?? false,
+    settleAccommodationBalance: req.body.settleAccommodationBalance ?? req.body.cobrarAlojamiento ?? false,
+    expectedAccommodationBalance: req.body.expectedAccommodationBalance ?? req.body.saldoAlojamientoEsperado,
     paymentMethodId: req.body.paymentMethodId ?? req.body.payment_method_id,
     paymentReference: req.body.paymentReference ?? req.body.payment_reference,
     serviceChargeIds: req.body.serviceChargeIds ?? req.body.idsCargosServicio,
@@ -101,6 +103,11 @@ const checkOut = asyncHandler(async (req, res) => {
 
 const pagosAlojamiento = asyncHandler(async (req, res) => {
   const data = await service.pagosAlojamiento(req.params.id);
+  res.json({ ok: true, data });
+});
+
+const estadoCuenta = asyncHandler(async (req, res) => {
+  const data = await service.estadoCuenta(req.params.id);
   res.json({ ok: true, data });
 });
 
@@ -121,5 +128,5 @@ const barrerNoShows = asyncHandler(async (_req, res) => {
 
 module.exports = {
   crear, modificar, cancelar, catalogos, clientes, habitaciones, crearHold, liberarHold,
-  listar, obtener, confirmar, checkIn, checkOut, pagosAlojamiento, registrarPagoAlojamiento, barrerNoShows,
+  listar, obtener, confirmar, checkIn, checkOut, pagosAlojamiento, estadoCuenta, registrarPagoAlojamiento, barrerNoShows,
 };

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { authHeaders } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -67,7 +68,7 @@ export default function TransfersPage() {
     let list: Deposit[] = [];
 
     try {
-      const resDep = await fetch(`${API}/api/depositos?activos=true`);
+      const resDep = await fetch(`${API}/api/depositos?activos=true`, { headers: authHeaders() });
       const jsonDep = await resDep.json();
       list = jsonDep?.data ?? [];
     } catch {
@@ -77,7 +78,7 @@ export default function TransfersPage() {
     await Promise.all(
       list.map(async (d) => {
         try {
-          const res = await fetch(`${API}/api/stock/deposito/${d.deposit_id}`);
+          const res = await fetch(`${API}/api/stock/deposito/${d.deposit_id}`, { headers: authHeaders() });
           if (!res.ok) return;
           const json = await res.json();
           if (!json.ok || !Array.isArray(json.data)) return;
@@ -218,7 +219,7 @@ export default function TransfersPage() {
       try {
         const res = await fetch(`${API}/api/stock/movimientos`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({
             stock_movement_operation_type: 'TRANSFERENCIA',
             article_code: l.article_code,

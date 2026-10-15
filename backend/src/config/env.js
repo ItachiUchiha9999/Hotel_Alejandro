@@ -7,6 +7,7 @@ require('dotenv').config();
 const env = {
   PORT: Number(process.env.PORT || 4000),
   DATABASE_URL: process.env.DATABASE_URL,
+  AUTH_TOKEN_SECRET: process.env.AUTH_TOKEN_SECRET || '',
   NODE_ENV: process.env.NODE_ENV || 'development',
   SMTP_HOST: process.env.SMTP_HOST || '',
   SMTP_PORT: Number(process.env.SMTP_PORT || 587),
@@ -34,6 +35,11 @@ if (!env.DATABASE_URL) {
     '\n[config] Falta DATABASE_URL.\n' +
       'Copiá backend/.env.example a backend/.env y completá la cadena de conexión.\n'
   );
+  process.exit(1);
+}
+
+if (env.AUTH_TOKEN_SECRET.length < 32 || env.AUTH_TOKEN_SECRET.startsWith('REEMPLAZAR_')) {
+  console.error('\n[config] AUTH_TOKEN_SECRET debe ser una clave aleatoria de al menos 32 caracteres en backend/.env.\n');
   process.exit(1);
 }
 

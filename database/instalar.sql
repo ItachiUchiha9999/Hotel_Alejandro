@@ -7,3 +7,6 @@
 \ir 18_reservas_web.sql
 \ir 19_reporte_egresos.sql
 \ir 20_reserva_hora_llegada.sql
+\ir 21_reserva_hora_salida.sql
+\ir 22_metodo_pago_tarjeta.sql
+\ir 23_rol_gerente.sql

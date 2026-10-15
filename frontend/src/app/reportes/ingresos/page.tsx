@@ -5,7 +5,7 @@ import { Download } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button, Card, Field, InfoBox, Input, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
 import { LineaTiempoIngresos } from "@/components/ingresos/LineaTiempoIngresos";
-import { api, urlDescarga } from "@/lib/api";
+import { api, authHeaders, urlDescarga } from "@/lib/api";
 import { ORIGENES_INGRESOS, fechaIngreso, monedaIngreso, type AgrupacionIngresos, type ReporteIngresos } from "@/lib/ingresos";
 
 function seleccionInicial() {
@@ -55,7 +55,7 @@ export default function IngresosPage() {
     setExportando(formato); setErrorExportacion(null);
     try {
       const parametros = new URLSearchParams({ desde:reporte.desde,hasta:reporte.hasta,agrupacion:reporte.agrupacion,formato });
-      const respuesta = await fetch(urlDescarga(`/ingresos/exportar?${parametros}`));
+      const respuesta = await fetch(urlDescarga(`/ingresos/exportar?${parametros}`), { headers: authHeaders() });
       if (!respuesta.ok) { const datos = await respuesta.json(); throw new Error(datos.message ?? "No se pudo exportar el reporte."); }
       const enlace = document.createElement("a"); const url = URL.createObjectURL(await respuesta.blob());
       enlace.href = url; enlace.download = `ingresos-${reporte.desde}-${reporte.hasta}-${reporte.agrupacion.toLowerCase()}.${formato}`;

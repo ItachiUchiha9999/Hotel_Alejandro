@@ -18,14 +18,22 @@ export class ApiError extends Error {
 
 type Payload = Record<string, unknown> | undefined;
 
+export function authHeaders(): Record<string, string> {
+  const token = typeof window === "undefined" ? null : window.localStorage.getItem("tokenSesion");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(ruta: string, init?: RequestInit): Promise<T> {
   let respuesta: Response;
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  for (const [nombre, valor] of Object.entries(authHeaders())) headers.set(nombre, valor);
 
   try {
     respuesta = await fetch(`${API_URL}/api${ruta}`, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
       ...init,
+      headers,
+      cache: "no-store",
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -102,6 +110,8 @@ export function checkInReserva(id: number | string, datos: DatosCheckIn) {
 
 export interface DatosCheckOut {
   settleServiceCharges?: boolean;
+  settleAccommodationBalance?: boolean;
+  expectedAccommodationBalance?: number;
   serviceChargeIds?: number[];
   pendingDetail?: string;
   paymentMethodId?: number;

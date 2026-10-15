@@ -50,6 +50,12 @@ const hoyUTC = () => {
 
 const yaLlegoLaFecha = (checkInDate: string) => new Date(checkInDate) <= hoyUTC();
 const formatoMoneda = (valor: number | string) => Number(valor).toLocaleString("es-AR", { style: "currency", currency: "ARS" });
+const detallePago = (referencia: string | null) => {
+  const tarjetaWeb = referencia?.startsWith("SIMULADO WEB: TARJETA");
+  const ultimos = referencia?.match(/^SIMULADO WEB: TARJETA \*{4}(\d{4})/);
+  if (tarjetaWeb) return ultimos ? ` · Tarjeta terminada en ${ultimos[1]}` : " · Terminación no disponible";
+  return referencia && !referencia.startsWith("SIMULADO WEB:") ? ` · Ref. ${referencia}` : "";
+};
 
 interface CargoPendiente {
   charge_id: number;
@@ -59,10 +65,25 @@ interface CargoPendiente {
   total_amount: number | string;
   charged_at: string;
   paid_at: string | null;
+  payment_reference?: string | null;
+  payment_method?: string | null;
 }
 interface MetodoPago { payment_method_id: number; payment_method: string; requires_reference: boolean; active: boolean; }
 interface PagoAlojamiento { reservation_payment_id: number; amount: number | string; paid_at: string; payment_reference: string | null; payment_method: string; employees_name: string; employees_lastname: string; }
-interface ResumenPagosAlojamiento { reservation_id: number; total_alojamiento: number; abonado: number; saldo: number; pagos: PagoAlojamiento[]; }
+interface EstadoCuenta {
+  reservation_id: number;
+  total_alojamiento: number;
+  abonado_alojamiento: number;
+  saldo_alojamiento: number;
+  pagos_alojamiento: PagoAlojamiento[];
+  total_consumos: number;
+  consumos_abonados: number;
+  consumos_pendientes: number;
+  cargos: CargoPendiente[];
+  total_cuenta: number;
+  total_abonado: number;
+  saldo_total: number;
+}
 
 const tonoPorEstado: Record<EstadoReserva, "activo" | "inactivo" | "info" | "alerta"> = {
   PENDIENTE: "alerta",
@@ -128,12 +149,11 @@ export default function ReservasPage() {
   const [pagina, setPagina] = useState(1);
 
   const [reservaCheckIn, setReservaCheckIn] = useState<Reserva | null>(null);
-  const [reservaCheckOut, setReservaCheckOut] = useState<Reserva | null>(null);
+  const [reservaCuenta, setReservaCuenta] = useState<Reserva | null>(null);
   const [reservaHuespedes, setReservaHuespedes] = useState<Reserva | null>(null);
   const [reservaEditar, setReservaEditar] = useState<Reserva | null>(null);
   const [reservaCancelar, setReservaCancelar] = useState<Reserva | null>(null);
   const [reservaConfirmar, setReservaConfirmar] = useState<Reserva | null>(null);
-  const [reservaPago, setReservaPago] = useState<Reserva | null>(null);
 
   const cargar = useCallback(async (signal?: AbortSignal) => {
     setCargando(true);
@@ -175,7 +195,14 @@ export default function ReservasPage() {
   const reservasPagina = visibles.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   const actualizarFila = (actualizada: Reserva) => {
-    setReservas((prev) => prev.map((r) => (r.reservation_id === actualizada.reservation_id ? actualizada : r)));
+    setReservas((prev) => prev.map((r) => r.reservation_id === actualizada.reservation_id ? {
+      ...r,
+      ...actualizada,
+      monto_abonado: actualizada.monto_abonado ?? r.monto_abonado,
+      saldo_alojamiento: actualizada.saldo_alojamiento ?? r.saldo_alojamiento,
+      medios_pago: actualizada.medios_pago ?? r.medios_pago,
+      pago_prueba: actualizada.pago_prueba ?? r.pago_prueba,
+    } : r));
   };
 
   return (
@@ -294,7 +321,7 @@ export default function ReservasPage() {
                   <TD className="text-xs tabular-nums">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2"><span className="w-12 text-[10px] uppercase tracking-wide text-carbon/45">Entrada</span><span className="font-medium text-carbon">{formatearFecha(r.check_in_date)}</span></div>
-                      <div className="flex items-center gap-2"><span className="w-12 text-[10px] uppercase tracking-wide text-carbon/45">Salida</span><span className="text-carbon/65">{formatearFecha(r.check_out_date)}</span></div>
+                      <div className="flex items-center gap-2"><span className="w-12 text-[10px] uppercase tracking-wide text-carbon/45">Salida</span><span className="text-carbon/65">{formatearFecha(r.check_out_date)}{r.estimated_departure_time && ` · ${new Date(r.estimated_departure_time).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}`}</span></div>
                     </div>
                   </TD>
                   <TD className="align-middle">
@@ -304,6 +331,12 @@ export default function ReservasPage() {
                         Vence {new Date(r.pending_expires_at).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}
                       </span>
                     )}
+                    {(r.monto_abonado ?? 0) > 0.001 && <div className="mt-2 space-y-1 text-[11px] leading-4">
+                      <span className={`block font-semibold ${(r.saldo_alojamiento ?? 0) <= 0.001 ? "text-[#365b3b]" : "text-[#805500]"}`}>
+                        {(r.saldo_alojamiento ?? 0) <= 0.001 ? "Alojamiento pagado" : `Pago parcial · saldo ${formatoMoneda(r.saldo_alojamiento ?? 0)}`}
+                      </span>
+                      <span className="block text-carbon/80">{r.medios_pago} · {formatoMoneda(r.monto_abonado ?? 0)}</span>
+                    </div>}
                   </TD>
                   <TD className="align-middle !text-center">
                     <div className="flex items-center justify-center">
@@ -314,8 +347,7 @@ export default function ReservasPage() {
                         onCancelar={() => setReservaCancelar(r)}
                         onCheckIn={() => setReservaCheckIn(r)}
                         onHuespedes={() => setReservaHuespedes(r)}
-                        onCheckOut={() => setReservaCheckOut(r)}
-                        onPago={() => setReservaPago(r)}
+                        onCuenta={() => setReservaCuenta(r)}
                       />
                     </div>
                   </TD>
@@ -353,19 +385,20 @@ export default function ReservasPage() {
         />
       )}
 
-      {reservaCheckOut && (
-        <ModalCheckOut
-          reserva={reservaCheckOut}
-          onCerrar={() => setReservaCheckOut(null)}
-          onExito={(actualizada, conSaldoPendiente) => {
+      {reservaCuenta && (
+        <ModalCuentaEstadia
+          reserva={reservaCuenta}
+          onCerrar={() => setReservaCuenta(null)}
+          onCheckout={(actualizada, conSaldoPendiente) => {
             actualizarFila(actualizada);
-            setReservaCheckOut(null);
+            setReservaCuenta(null);
             setMensaje(
               (actualizada.check_out_pending_charges ?? conSaldoPendiente)
                 ? "Check-out registrado. Atención: la estadía quedó con saldo pendiente de facturar/cobrar."
                 : "Check-out registrado correctamente.",
             );
           }}
+          onPagoRegistrado={() => setMensaje(`Cuenta actualizada para ${reservaCuenta.reservation_code}.`)}
         />
       )}
 
@@ -411,7 +444,6 @@ export default function ReservasPage() {
           }}
         />
       )}
-      {reservaPago && <ModalPagosAlojamiento reserva={reservaPago} onCerrar={() => setReservaPago(null)} onPagoRegistrado={() => setMensaje(`Pago de alojamiento registrado para ${reservaPago.reservation_code}.`)} />}
     </>
   );
 }
@@ -432,8 +464,7 @@ function MenuAcciones({
   onCancelar,
   onCheckIn,
   onHuespedes,
-  onCheckOut,
-  onPago,
+  onCuenta,
 }: {
   reserva: Reserva;
   onConfirmar: () => void;
@@ -441,8 +472,7 @@ function MenuAcciones({
   onCancelar: () => void;
   onCheckIn: () => void;
   onHuespedes: () => void;
-  onCheckOut: () => void;
-  onPago: () => void;
+  onCuenta: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -554,18 +584,13 @@ function MenuAcciones({
                 </Button>
               )}
               {estado === "IN_HOUSE" && (
-                <>
-                  <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onHuespedes)} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
-                    Huéspedes
-                  </Button>
-                  <Button tamano="sm" className="w-full justify-start" onClick={ejecutar(onCheckOut)} aria-label={`Registrar check-out de ${r.reservation_code}`}>
-                    Check-out
-                  </Button>
-                </>
+                <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onHuespedes)} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
+                  Huéspedes
+                </Button>
               )}
               {["CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(estado) && (
-                <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onPago)}>
-                  Cobros
+                <Button tamano="sm" className="w-full justify-start" onClick={ejecutar(onCuenta)} aria-label={`Abrir cuenta de ${r.reservation_code}`}>
+                  {estado === "IN_HOUSE" ? "Cuenta y check-out" : "Cuenta"}
                 </Button>
               )}
             </div>
@@ -574,63 +599,6 @@ function MenuAcciones({
         )}
     </>
   );
-}
-
-function ModalPagosAlojamiento({ reserva, onCerrar, onPagoRegistrado }: { reserva: Reserva; onCerrar: () => void; onPagoRegistrado: () => void }) {
-  const [resumen, setResumen] = useState<ResumenPagosAlojamiento | null>(null);
-  const [metodos, setMetodos] = useState<MetodoPago[]>([]);
-  const [importe, setImporte] = useState("");
-  const [metodoId, setMetodoId] = useState("");
-  const [referencia, setReferencia] = useState("");
-  const [cargando, setCargando] = useState(true);
-  const [guardando, setGuardando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let vigente = true;
-    Promise.all([
-        api.get<ResumenPagosAlojamiento>(`/reservas/${reserva.reservation_id}/pagos-alojamiento`),
-        api.get<MetodoPago[]>("/metodos-pago?activos=true"),
-    ]).then(([estadoPago, formas]) => {
-      if (!vigente) return;
-      setResumen(estadoPago); setMetodos(formas.filter((m) => m.active));
-      setMetodoId(String(formas.find((m) => m.active)?.payment_method_id ?? ""));
-      setImporte(estadoPago.saldo > 0 ? estadoPago.saldo.toFixed(2) : "");
-    }).catch((err) => {
-      if (vigente) setError(err instanceof ApiError ? err.message : "No se pudo consultar el saldo de alojamiento.");
-    }).finally(() => { if (vigente) setCargando(false); });
-    return () => { vigente = false; };
-  }, [reserva.reservation_id]);
-
-  const registrar = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!resumen) return;
-    const forma = metodos.find((m) => String(m.payment_method_id) === metodoId);
-    const valor = Number(importe);
-    if (!forma || !Number.isFinite(valor) || valor <= 0 || valor > resumen.saldo) { setError("Ingresá un importe válido que no supere el saldo pendiente."); return; }
-    if (forma.requires_reference && !referencia.trim()) { setError("Este medio de pago requiere número de referencia."); return; }
-    setGuardando(true); setError(null);
-    try {
-      const actualizado = await api.post<ResumenPagosAlojamiento>(`/reservas/${reserva.reservation_id}/pagos-alojamiento`, {
-        amount: valor, paymentMethodId: forma.payment_method_id, paymentReference: referencia.trim() || undefined, employeeId: leerEmployeeId(),
-      });
-      setResumen(actualizado); setImporte(actualizado.saldo > 0 ? actualizado.saldo.toFixed(2) : ""); setReferencia(""); onPagoRegistrado();
-    } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo registrar el pago de alojamiento."); }
-    finally { setGuardando(false); }
-  };
-
-  return <ModalShell titulo={`Cobros de alojamiento · ${reserva.reservation_code}`} onCerrar={onCerrar}>
-    <div className="space-y-4">
-      <p className="text-sm text-carbon/70">{reserva.guest.last_name}, {reserva.guest.first_name} · Habitación {reserva.room.room_number}</p>
-      {error && <InfoBox tipo="error">{error}</InfoBox>}
-      {cargando ? <p className="py-6 text-center text-sm text-carbon/50">Consultando pagos…</p> : resumen && <>
-        <div className="grid grid-cols-3 gap-2 text-center"><div className="rounded-md bg-bone/45 p-2"><span className="block text-[10px] uppercase text-carbon/50">Total estadía</span><strong className="text-xs">{formatoMoneda(resumen.total_alojamiento)}</strong></div><div className="rounded-md bg-success/5 p-2"><span className="block text-[10px] uppercase text-carbon/50">Abonado</span><strong className="text-xs text-success">{formatoMoneda(resumen.abonado)}</strong></div><div className="rounded-md bg-warning/10 p-2"><span className="block text-[10px] uppercase text-carbon/50">Saldo</span><strong className="text-xs">{formatoMoneda(resumen.saldo)}</strong></div></div>
-        {resumen.pagos.length > 0 && <section><h3 className="mb-2 text-sm font-semibold">Pagos registrados</h3><ul className="max-h-32 divide-y divide-line overflow-y-auto rounded-md border border-line px-3">{resumen.pagos.map((pago) => <li key={pago.reservation_payment_id} className="flex justify-between gap-3 py-2 text-xs"><span>{new Date(pago.paid_at).toLocaleString("es-AR")} · {pago.payment_method}{pago.payment_reference && ` · Ref. ${pago.payment_reference}`}</span><strong className="whitespace-nowrap">{formatoMoneda(pago.amount)}</strong></li>)}</ul></section>}
-        {resumen.saldo > 0 ? <form onSubmit={registrar} className="space-y-3 border-t border-line pt-4"><h3 className="text-sm font-semibold">Registrar un pago</h3><FieldGrid><Field label="Importe" htmlFor="pago-alojamiento-importe" requerido><Input id="pago-alojamiento-importe" type="number" min="0.01" max={resumen.saldo} step="0.01" value={importe} onChange={(e) => setImporte(e.target.value)} required disabled={guardando} /></Field><Field label="Medio de pago" htmlFor="pago-alojamiento-metodo" requerido><Select id="pago-alojamiento-metodo" value={metodoId} onChange={(e) => setMetodoId(e.target.value)} required disabled={guardando}><option value="">Elegí medio</option>{metodos.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.payment_method}</option>)}</Select></Field></FieldGrid>{metodos.find((m) => String(m.payment_method_id) === metodoId)?.requires_reference && <Field label="Referencia" htmlFor="pago-alojamiento-ref" requerido><Input id="pago-alojamiento-ref" value={referencia} onChange={(e) => setReferencia(e.target.value)} maxLength={100} required disabled={guardando} /></Field>}<div className="flex justify-end gap-2"><Button type="button" variante="secundario" onClick={onCerrar} disabled={guardando}>Cerrar</Button><Button type="submit" cargando={guardando}>Registrar pago</Button></div></form> : <div className="rounded-md border border-success/25 bg-success/5 p-3 text-sm text-success">Alojamiento abonado por completo.</div>}
-      </>}
-      {cargando && <div className="flex justify-end"><Button type="button" variante="secundario" onClick={onCerrar}>Cerrar</Button></div>}
-    </div>
-  </ModalShell>;
 }
 
 function ModalHuespedesEstadia({ reserva, onCerrar }: { reserva: Reserva; onCerrar: () => void }) {
@@ -1124,159 +1092,201 @@ function ModalCheckIn({
   );
 }
 
-/* ---------------------------------------------------------------------------
- * Modal de confirmación — Check-out (RES-11)
- * ------------------------------------------------------------------------- */
-
-function ModalCheckOut({
+function ModalCuentaEstadia({
   reserva,
   onCerrar,
-  onExito,
+  onCheckout,
+  onPagoRegistrado,
 }: {
   reserva: Reserva;
   onCerrar: () => void;
-  onExito: (actualizada: Reserva, conSaldoPendiente: boolean) => void;
+  onCheckout: (actualizada: Reserva, conSaldoPendiente: boolean) => void;
+  onPagoRegistrado: () => void;
 }) {
-  const [cargos, setCargos] = useState<CargoPendiente[]>([]);
-  const [metodosPago, setMetodosPago] = useState<MetodoPago[]>([]);
-  const [metodoPagoId, setMetodoPagoId] = useState("");
-  const [referenciaPago, setReferenciaPago] = useState("");
-  const [cargandoCargos, setCargandoCargos] = useState(true);
-  const [errorConsultaCargos, setErrorConsultaCargos] = useState(false);
-  const [decisionCargos, setDecisionCargos] = useState<"COBRAR" | "PENDIENTE" | null>(null);
+  const [cuenta, setCuenta] = useState<EstadoCuenta | null>(null);
+  const [metodos, setMetodos] = useState<MetodoPago[]>([]);
+  const [metodoId, setMetodoId] = useState("");
+  const [referencia, setReferencia] = useState("");
+  const [importeAlojamiento, setImporteAlojamiento] = useState("");
+  const [decisionCuenta, setDecisionCuenta] = useState<"COBRAR" | "PENDIENTE" | null>(null);
   const [detalleSaldo, setDetalleSaldo] = useState("");
   const [observaciones, setObservaciones] = useState("");
-  const [enviando, setEnviando] = useState(false);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [cargoEnProceso, setCargoEnProceso] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const recargarCuenta = useCallback(async () => {
+    const estado = await api.get<EstadoCuenta>(`/reservas/${reserva.reservation_id}/cuenta`);
+    setCuenta(estado);
+    setImporteAlojamiento(estado.saldo_alojamiento > 0 ? estado.saldo_alojamiento.toFixed(2) : "");
+    return estado;
+  }, [reserva.reservation_id]);
 
   useEffect(() => {
     let vigente = true;
-    api.get<CargoPendiente[]>(`/servicios-habitacion/habitaciones/${reserva.room_id}/cargos?reservationId=${reserva.reservation_id}`)
-      .then((data) => { if (vigente) setCargos(data.filter((cargo) => !cargo.paid_at)); })
-      .catch((err) => { if (vigente) { setErrorConsultaCargos(true); setError(err instanceof ApiError ? err.message : "No se pudieron consultar los cargos de la estadía."); } })
-      .finally(() => { if (vigente) setCargandoCargos(false); });
-    return () => { vigente = false; };
-  }, [reserva.reservation_id, reserva.room_id]);
-
-  useEffect(() => {
+    recargarCuenta()
+      .catch((err) => { if (vigente) setError(err instanceof ApiError ? err.message : "No se pudo consultar la cuenta de la estadía."); })
+      .finally(() => { if (vigente) setCargando(false); });
     api.get<MetodoPago[]>("/metodos-pago?activos=true")
-      .then((metodos) => { setMetodosPago(metodos); setMetodoPagoId(String(metodos[0]?.payment_method_id ?? "")); })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "No se pudieron cargar los medios de pago."));
-  }, []);
+      .then((formas) => {
+        if (!vigente) return;
+        const activas = formas.filter((forma) => forma.active);
+        setMetodos(activas);
+        setMetodoId(String(activas[0]?.payment_method_id ?? ""));
+      })
+      .catch((err) => { if (vigente) setError(err instanceof ApiError ? err.message : "No se pudieron cargar los medios de pago."); });
+    return () => { vigente = false; };
+  }, [recargarCuenta]);
 
-  const totalCargosPendientes = cargos.reduce((total, cargo) => total + Number(cargo.total_amount), 0);
+  const formaSeleccionada = metodos.find((forma) => String(forma.payment_method_id) === metodoId);
+  const cargosPendientes = cuenta?.cargos.filter((cargo) => !cargo.paid_at) ?? [];
+  const puedeCobrar = reserva.reservation_status === "IN_HOUSE" || reserva.reservation_status === "FINALIZADA";
 
-  const confirmar = async (event: FormEvent) => {
+  const registrarPagoAlojamiento = async (event: FormEvent) => {
     event.preventDefault();
+    if (!cuenta) return;
+    const importe = Number(importeAlojamiento);
+    if (!formaSeleccionada || !Number.isFinite(importe) || importe <= 0 || importe > cuenta.saldo_alojamiento) {
+      setError("Ingresá un importe válido que no supere el saldo de alojamiento.");
+      return;
+    }
+    if (formaSeleccionada.requires_reference && !referencia.trim()) {
+      setError("Este medio de pago requiere número de referencia.");
+      return;
+    }
+    setGuardando(true);
     setError(null);
-    if (cargandoCargos) return;
-    if (cargos.length > 0 && !decisionCargos) {
-      setError("Elegí si los cargos se registran como cobrados o quedan pendientes.");
-      return;
-    }
-    if (cargos.length > 0 && decisionCargos === "PENDIENTE" && !detalleSaldo.trim()) {
-      setError("Indicá el motivo por el que los cargos quedan pendientes.");
-      return;
-    }
-    const metodoSeleccionado = metodosPago.find((m) => String(m.payment_method_id) === metodoPagoId);
-    if (cargos.length > 0 && decisionCargos === "COBRAR" && !metodoSeleccionado) { setError("Elegí el medio de pago para los cargos de habitación."); return; }
-    if (cargos.length > 0 && decisionCargos === "COBRAR" && metodoSeleccionado?.requires_reference && !referenciaPago.trim()) { setError("El medio de pago seleccionado requiere número de referencia."); return; }
-    setEnviando(true);
     try {
+      await api.post(`/reservas/${reserva.reservation_id}/pagos-alojamiento`, {
+        amount: importe,
+        paymentMethodId: formaSeleccionada.payment_method_id,
+        paymentReference: referencia.trim() || undefined,
+        employeeId: leerEmployeeId(),
+      });
+      await recargarCuenta();
+      setReferencia("");
+      onPagoRegistrado();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo registrar el pago de alojamiento.");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const cobrarConsumo = async (cargo: CargoPendiente) => {
+    if (!formaSeleccionada) { setError("Elegí el medio de pago para cobrar el consumo."); return; }
+    if (formaSeleccionada.requires_reference && !referencia.trim()) { setError("Este medio de pago requiere número de referencia."); return; }
+    setCargoEnProceso(cargo.charge_id);
+    setError(null);
+    try {
+      await api.patch(`/servicios-habitacion/cargos/${cargo.charge_id}/cobrar`, {
+        paymentMethodId: formaSeleccionada.payment_method_id,
+        paymentReference: referencia.trim() || undefined,
+        usuarioRecepcionId: leerEmployeeId(),
+      });
+      await recargarCuenta();
+      setReferencia("");
+      onPagoRegistrado();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo cobrar el consumo.");
+    } finally {
+      setCargoEnProceso(null);
+    }
+  };
+
+  const confirmarCheckOut = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!cuenta) return;
+    const tieneSaldo = cuenta.saldo_total > 0.001;
+    if (tieneSaldo && !decisionCuenta) { setError("Indicá cómo cerrar el saldo pendiente de la cuenta."); return; }
+    if (tieneSaldo && decisionCuenta === "PENDIENTE" && !detalleSaldo.trim()) { setError("Indicá el motivo por el que la cuenta queda pendiente."); return; }
+    if (tieneSaldo && decisionCuenta === "COBRAR" && !formaSeleccionada) { setError("Elegí el medio de pago para cerrar la cuenta."); return; }
+    if (tieneSaldo && decisionCuenta === "COBRAR" && formaSeleccionada?.requires_reference && !referencia.trim()) { setError("Este medio de pago requiere número de referencia."); return; }
+    setGuardando(true);
+    setError(null);
+    try {
+      const cobrarCuenta = decisionCuenta === "COBRAR";
       const actualizada = await checkOutReserva(reserva.reservation_id, {
-        settleServiceCharges: decisionCargos === "COBRAR",
-        paymentMethodId: decisionCargos === "COBRAR" ? Number(metodoPagoId) : undefined,
-        paymentReference: decisionCargos === "COBRAR" ? referenciaPago.trim() || undefined : undefined,
-        serviceChargeIds: cargos.map((cargo) => cargo.charge_id),
-        pendingDetail: decisionCargos === "PENDIENTE" ? detalleSaldo.trim() : undefined,
+        settleServiceCharges: cobrarCuenta,
+        settleAccommodationBalance: cobrarCuenta,
+        expectedAccommodationBalance: cuenta.saldo_alojamiento,
+        serviceChargeIds: cargosPendientes.map((cargo) => cargo.charge_id),
+        pendingDetail: decisionCuenta === "PENDIENTE" ? detalleSaldo.trim() : undefined,
+        paymentMethodId: cobrarCuenta && tieneSaldo ? formaSeleccionada?.payment_method_id : undefined,
+        paymentReference: cobrarCuenta ? referencia.trim() || undefined : undefined,
         observations: observaciones.trim() || undefined,
         employeeId: leerEmployeeId(),
       });
-      onExito(actualizada, decisionCargos === "PENDIENTE");
+      onCheckout(actualizada, decisionCuenta === "PENDIENTE");
     } catch (err) {
-      // 409 típico: la reserva todavía no tiene check-in registrado.
       setError(err instanceof ApiError ? err.message : "No se pudo registrar el check-out.");
     } finally {
-      setEnviando(false);
+      setGuardando(false);
     }
   };
 
   return (
-    <ModalShell titulo={`Check-out — ${reserva.reservation_code}`} onCerrar={onCerrar}>
-      <form onSubmit={confirmar} noValidate className="space-y-4">
-        <p className="text-sm text-carbon/70">
-          {reserva.guest.last_name}, {reserva.guest.first_name} · Habitación {reserva.room.room_number}
-        </p>
-
+    <ModalShell titulo={`Cuenta de estadía · ${reserva.reservation_code}`} onCerrar={onCerrar} ancho="max-w-2xl">
+      <div className="space-y-5">
+        <p className="text-sm text-carbon/70">{reserva.guest.last_name}, {reserva.guest.first_name} · Habitación {reserva.room.room_number}</p>
         {error && <InfoBox tipo="error">{error}</InfoBox>}
-
-        {cargandoCargos ? (
-          <div className="rounded-lg border border-line bg-bone/30 px-4 py-3 text-sm text-carbon/60" role="status">
-            Consultando el folio de la habitación…
-          </div>
-        ) : error && cargos.length === 0 ? null : cargos.length > 0 ? (
-          <section className="space-y-3 rounded-lg border border-warning/30 bg-warning/5 p-4" aria-labelledby="checkout-cargos-title">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h3 id="checkout-cargos-title" className="text-sm font-semibold text-carbon">Cargos pendientes de la habitación</h3>
-                <p className="mt-0.5 text-xs text-carbon/55">Revisá el folio y definí cómo cerrar estos consumos.</p>
-              </div>
-              <strong className="text-sm text-carbon">{formatoMoneda(totalCargosPendientes)}</strong>
+        {cargando ? <p className="py-8 text-center text-sm text-carbon/50">Consultando alojamiento y consumos…</p> : cuenta && <>
+          <section className="space-y-3 rounded-lg border border-line bg-bone/20 p-4" aria-labelledby="cuenta-resumen-title">
+            <h3 id="cuenta-resumen-title" className="text-sm font-semibold text-carbon">Resumen completo</h3>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-md bg-white p-3"><span className="block text-[10px] uppercase text-carbon/50">Alojamiento</span><strong className="text-sm">{formatoMoneda(cuenta.total_alojamiento)}</strong><span className="mt-1 block text-[11px] text-carbon/55">Pagado {formatoMoneda(cuenta.abonado_alojamiento)}</span></div>
+              <div className="rounded-md bg-white p-3"><span className="block text-[10px] uppercase text-carbon/50">Consumos</span><strong className="text-sm">{formatoMoneda(cuenta.total_consumos)}</strong><span className="mt-1 block text-[11px] text-carbon/55">Pagado {formatoMoneda(cuenta.consumos_abonados)}</span></div>
+              <div className="rounded-md bg-white p-3"><span className="block text-[10px] uppercase text-carbon/50">Total de cuenta</span><strong className="text-sm">{formatoMoneda(cuenta.total_cuenta)}</strong><span className="mt-1 block text-[11px] text-carbon/55">Pagado {formatoMoneda(cuenta.total_abonado)}</span></div>
+              <div className="rounded-md border border-warning/25 bg-warning/5 p-3"><span className="block text-[10px] uppercase text-carbon/50">Saldo pendiente</span><strong className="text-sm">{formatoMoneda(cuenta.saldo_total)}</strong></div>
             </div>
-            <ul className="max-h-32 divide-y divide-line overflow-y-auto rounded-md border border-line bg-white px-3">
-              {cargos.map((cargo) => (
-                <li key={cargo.charge_id} className="flex justify-between gap-3 py-2 text-xs">
-                  <span>{cargo.quantity} × {cargo.service_name} <span className="text-carbon/45">({formatoMoneda(cargo.unit_price)} c/u)</span></span>
-                  <strong className="whitespace-nowrap">{formatoMoneda(cargo.total_amount)}</strong>
-                </li>
-              ))}
-            </ul>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className={`cursor-pointer rounded-md border px-3 py-2.5 text-sm ${decisionCargos === "COBRAR" ? "border-gold bg-gold/10" : "border-line bg-white"}`}>
-                <input type="radio" name="checkout-cargos" value="COBRAR" checked={decisionCargos === "COBRAR"} disabled={enviando} onChange={() => { setDecisionCargos("COBRAR"); setError(null); }} className="mr-2 accent-gold" />
-                Registrar como cobrados
-              </label>
-              <label className={`cursor-pointer rounded-md border px-3 py-2.5 text-sm ${decisionCargos === "PENDIENTE" ? "border-warning bg-warning/10" : "border-line bg-white"}`}>
-                <input type="radio" name="checkout-cargos" value="PENDIENTE" checked={decisionCargos === "PENDIENTE"} disabled={enviando} onChange={() => { setDecisionCargos("PENDIENTE"); setError(null); }} className="mr-2 accent-gold" />
-                Dejar pendiente
-              </label>
+            <div>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-carbon/60">Consumos y servicios</h4>
+              {cuenta.cargos.length ? <ul className="max-h-56 divide-y divide-line overflow-y-auto rounded-md border border-line bg-white px-3">
+                {cuenta.cargos.map((cargo) => <li key={cargo.charge_id} className="py-3 text-xs">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div><p className="font-medium text-carbon">{cargo.service_name}</p><p className="mt-1 text-carbon/55">Cantidad: {cargo.quantity} · {new Date(cargo.charged_at).toLocaleDateString("es-AR")}</p></div>
+                    <div className="text-right"><p className="text-[10px] uppercase tracking-wide text-carbon/50">Precio por unidad</p><p className="mt-0.5 font-medium">{formatoMoneda(cargo.unit_price)}</p></div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-2"><span className="text-carbon/65">Subtotal ({cargo.quantity} × {formatoMoneda(cargo.unit_price)})</span><span className="flex items-center gap-3"><strong>{formatoMoneda(cargo.total_amount)}</strong>{cargo.paid_at ? <span className="text-success">Cobrado{cargo.payment_method ? ` · ${cargo.payment_method}` : ""}</span> : puedeCobrar ? <Button tamano="sm" variante="secundario" onClick={() => void cobrarConsumo(cargo)} cargando={cargoEnProceso === cargo.charge_id} disabled={guardando || cargoEnProceso !== null}>Cobrar</Button> : <span className="text-warning">Pendiente</span>}</span></div>
+                </li>)}
+              </ul> : <p className="rounded-md border border-dashed border-line bg-white px-3 py-3 text-xs text-carbon/55">Todavía no hay consumos cargados a esta estadía.</p>}
             </div>
-            {decisionCargos === "PENDIENTE" && (
-              <Field label="Motivo del saldo pendiente" htmlFor="co-detalle" requerido>
-                <Input id="co-detalle" placeholder="Ej.: El huésped abonará por transferencia" value={detalleSaldo} maxLength={255} disabled={enviando} onChange={(e) => { setDetalleSaldo(e.target.value); setError(null); }} />
-              </Field>
-            )}
-            {decisionCargos === "COBRAR" && <FieldGrid>
-              <Field label="Medio de pago" htmlFor="co-metodo-pago" requerido><Select id="co-metodo-pago" value={metodoPagoId} onChange={(e) => { setMetodoPagoId(e.target.value); setError(null); }} required disabled={enviando}><option value="">Elegí medio de pago</option>{metodosPago.filter((m) => m.active).map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.payment_method}</option>)}</Select></Field>
-              {metodosPago.find((m) => String(m.payment_method_id) === metodoPagoId)?.requires_reference && <Field label="Referencia" htmlFor="co-referencia" requerido><Input id="co-referencia" value={referenciaPago} onChange={(e) => { setReferenciaPago(e.target.value); setError(null); }} maxLength={100} required disabled={enviando} /></Field>}
-            </FieldGrid>}
+            {cuenta.pagos_alojamiento.length > 0 && <div>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-carbon/60">Pagos de alojamiento</h4>
+              <ul className="max-h-28 divide-y divide-line overflow-y-auto rounded-md border border-line bg-white px-3">
+                {cuenta.pagos_alojamiento.map((pago) => <li key={pago.reservation_payment_id} className="flex justify-between gap-3 py-2 text-xs"><span>{new Date(pago.paid_at).toLocaleString("es-AR")} · {pago.payment_method}{detallePago(pago.payment_reference)}</span><strong>{formatoMoneda(pago.amount)}</strong></li>)}
+              </ul>
+            </div>}
           </section>
-        ) : !error ? (
-          <div className="rounded-lg border border-success/25 bg-success/5 px-4 py-3 text-sm text-carbon/75">
-            No hay cargos de habitación pendientes. El folio está al día.
-          </div>
-        ) : null}
 
-        <Field label="Observaciones" htmlFor="co-observaciones" ayuda="Opcional.">
-          <textarea
-            id="co-observaciones"
-            rows={3}
-            value={observaciones}
-            disabled={enviando}
-            onChange={(e) => setObservaciones(e.target.value)}
-            className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon placeholder:text-carbon/35 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/60 disabled:cursor-not-allowed disabled:bg-bone/60"
-          />
-        </Field>
+          {puedeCobrar && cuenta.saldo_alojamiento > 0.001 && <form onSubmit={registrarPagoAlojamiento} className="space-y-3 rounded-lg border border-line p-4">
+            <div><h3 className="text-sm font-semibold">Registrar un pago de alojamiento</h3><p className="mt-1 text-xs text-carbon/55">Podés registrar un pago parcial sin cerrar la estadía.</p></div>
+            <Field label="Importe" htmlFor="cuenta-pago-alojamiento" requerido><Input id="cuenta-pago-alojamiento" type="number" min="0.01" max={cuenta.saldo_alojamiento} step="0.01" value={importeAlojamiento} onChange={(e) => setImporteAlojamiento(e.target.value)} required disabled={guardando} /></Field>
+            <Button type="submit" variante="secundario" cargando={guardando}>Registrar pago</Button>
+          </form>}
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variante="secundario" onClick={onCerrar} disabled={enviando}>
-            Cancelar
-          </Button>
-          <Button type="submit" cargando={enviando} disabled={cargandoCargos || errorConsultaCargos}>
-            Confirmar check-out
-          </Button>
-        </div>
-      </form>
+          {(puedeCobrar && (cuenta.saldo_alojamiento > 0.001 || cargosPendientes.length > 0 || (reserva.reservation_status === "IN_HOUSE" && cuenta.saldo_total > 0.001))) && <section className="space-y-3 rounded-lg border border-line p-4">
+            <h3 className="text-sm font-semibold">Medio de pago</h3>
+            <Field label="Forma de pago" htmlFor="cuenta-metodo-pago" requerido><Select id="cuenta-metodo-pago" value={metodoId} onChange={(e) => { setMetodoId(e.target.value); setError(null); }} disabled={guardando || cargoEnProceso !== null}><option value="">Elegí medio de pago</option>{metodos.map((forma) => <option key={forma.payment_method_id} value={forma.payment_method_id}>{forma.payment_method}</option>)}</Select></Field>
+            {formaSeleccionada?.requires_reference && <Field label="Referencia" htmlFor="cuenta-referencia" requerido><Input id="cuenta-referencia" value={referencia} onChange={(e) => { setReferencia(e.target.value); setError(null); }} maxLength={100} disabled={guardando || cargoEnProceso !== null} /></Field>}
+          </section>}
+
+          {reserva.reservation_status === "CONFIRMADA" && <p className="rounded-md border border-info/20 bg-info/5 p-3 text-xs text-carbon/70">El cobro se habilita al registrar el check-in.</p>}
+
+          {reserva.reservation_status === "IN_HOUSE" && <form onSubmit={confirmarCheckOut} noValidate className="space-y-3 border-t border-line pt-4">
+            <div><h3 className="text-sm font-semibold">Cerrar estadía</h3><p className="mt-1 text-xs text-carbon/55">El check-out cierra la cuenta y libera la habitación para limpieza.</p></div>
+            {cuenta.saldo_total > 0.001 ? <div className="grid gap-2 sm:grid-cols-2">
+              <label className={`cursor-pointer rounded-md border px-3 py-3 text-sm ${decisionCuenta === "COBRAR" ? "border-gold bg-gold/10" : "border-line bg-white"}`}><input type="radio" name="decision-cuenta" checked={decisionCuenta === "COBRAR"} disabled={guardando} onChange={() => { setDecisionCuenta("COBRAR"); setError(null); }} className="mr-2 accent-gold" />Cobrar el saldo completo <strong className="block pl-6 pt-1">{formatoMoneda(cuenta.saldo_total)}</strong></label>
+              <label className={`cursor-pointer rounded-md border px-3 py-3 text-sm ${decisionCuenta === "PENDIENTE" ? "border-warning bg-warning/10" : "border-line bg-white"}`}><input type="radio" name="decision-cuenta" checked={decisionCuenta === "PENDIENTE"} disabled={guardando} onChange={() => { setDecisionCuenta("PENDIENTE"); setError(null); }} className="mr-2 accent-gold" />Dejar el saldo pendiente</label>
+            </div> : <p className="rounded-md border border-success/25 bg-success/5 p-3 text-sm text-success">La cuenta está saldada. Podés confirmar el check-out.</p>}
+            {decisionCuenta === "PENDIENTE" && <Field label="Motivo del saldo pendiente" htmlFor="cuenta-detalle-saldo" requerido><Input id="cuenta-detalle-saldo" placeholder="Ej.: El huésped abonará por transferencia" value={detalleSaldo} maxLength={255} disabled={guardando} onChange={(e) => { setDetalleSaldo(e.target.value); setError(null); }} /></Field>}
+            <Field label="Observaciones" htmlFor="cuenta-observaciones" ayuda="Opcional."><textarea id="cuenta-observaciones" rows={2} value={observaciones} disabled={guardando} onChange={(e) => setObservaciones(e.target.value)} className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon placeholder:text-carbon/35 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/60 disabled:bg-bone/60" /></Field>
+            <div className="flex justify-end gap-2"><Button type="button" variante="secundario" onClick={onCerrar} disabled={guardando}>Cerrar</Button><Button type="submit" cargando={guardando}>Confirmar check-out</Button></div>
+          </form>}
+          {reserva.reservation_status !== "IN_HOUSE" && <div className="flex justify-end"><Button type="button" variante="secundario" onClick={onCerrar} disabled={guardando}>Cerrar</Button></div>}
+        </>}
+      </div>
     </ModalShell>
   );
 }
@@ -1290,10 +1300,12 @@ function ModalShell({
   titulo,
   onCerrar,
   children,
+  ancho = "max-w-md",
 }: {
   titulo: string;
   onCerrar: () => void;
   children: React.ReactNode;
+  ancho?: "max-w-md" | "max-w-2xl";
 }) {
   return (
     <div
@@ -1302,7 +1314,7 @@ function ModalShell({
         if (e.target === e.currentTarget) onCerrar();
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-line bg-white shadow-xl">
+      <div className={`w-full ${ancho} max-h-[90vh] overflow-y-auto rounded-xl border border-line bg-white shadow-xl`}>
         <div className="flex items-center justify-between border-b border-line px-6 py-4">
           <h2 className="font-serif text-lg text-carbon">{titulo}</h2>
           <button

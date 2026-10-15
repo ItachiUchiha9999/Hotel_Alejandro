@@ -183,6 +183,7 @@ export interface Reserva {
   room_id: number;
   check_in_date: string;
   check_out_date: string;
+  estimated_departure_time?: string | null;
   adults: number;
   children: number;
   price_per_night: string | number;
@@ -193,6 +194,10 @@ export interface Reserva {
   cancelled_at?: string | null;
   cancellation_reason?: string | null;
   pending_expires_at?: string | null;
+  monto_abonado?: number;
+  saldo_alojamiento?: number;
+  medios_pago?: string | null;
+  pago_prueba?: boolean;
   stay_guests?: Array<{
     stay_guest_id: number;
     guest_role: "TITULAR" | "ACOMPANANTE";

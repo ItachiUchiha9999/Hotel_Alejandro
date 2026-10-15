@@ -11,6 +11,7 @@ async function consultar(filtros) {
            r.reservation_code AS reserva, rp.amount AS importe
     FROM reservation_payment rp JOIN reservation r ON r.reservation_id = rp.reservation_id
     WHERE rp.paid_at >= (${seleccion.anterior_desde}::date::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires')
+      AND COALESCE(rp.payment_reference, '') NOT LIKE 'SIMULADO WEB:%'
       AND rp.paid_at < ((${seleccion.hasta}::date + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires')
     UNION ALL
     SELECT 'S-' || c.charge_id AS id,

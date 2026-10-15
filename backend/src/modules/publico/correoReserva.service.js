@@ -6,11 +6,12 @@ function mensajeConfirmacion(reserva) {
   const consulta = `${env.PUBLIC_WEB_URL.replace(/\/$/, '')}/web/consulta`;
   const importe = new Intl.NumberFormat('es-AR', { style: 'currency', currency: reserva.moneda }).format(reserva.total);
   const llegada = reserva.hora_llegada ? `\nHora de llegada estimada: ${reserva.hora_llegada}` : '';
+  const salida = reserva.hora_salida ? `\nHora de salida estimada: ${reserva.hora_salida}` : '';
   return {
     from: env.MAIL_FROM,
     to: { name: `${reserva.nombre} ${reserva.apellido}`, address: reserva.email },
     subject: `Hotel Alejandro I — Reserva ${reserva.codigo}`,
-    text: `Hola ${reserva.nombre},\n\nRegistramos tu reserva ${reserva.codigo}.\nEstado: Pendiente de confirmación por el hotel.\nHabitación: ${reserva.tipo}\nIngreso: ${reserva.desde}\nSalida: ${reserva.hasta}${llegada}\nHuéspedes: ${reserva.huespedes}\nNoches: ${reserva.noches}\nTotal de alojamiento: ${importe}\n\nEl pago se realiza en el hotel. La reserva pendiente vence el ${new Date(reserva.vence).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })} (hora de Argentina) si no se confirma.\nConsultá o cancelá con tu código y documento en ${consulta}.\n\nHotel Alejandro I`,
+    text: `Hola ${reserva.nombre},\n\nRegistramos tu reserva ${reserva.codigo}.\nEstado: Pendiente de confirmación por el hotel.\nHabitación: ${reserva.tipo}\nIngreso: ${reserva.desde}\nSalida: ${reserva.hasta}${llegada}${salida}\nHuéspedes: ${reserva.huespedes}\nNoches: ${reserva.noches}\nTotal de alojamiento: ${importe}\n\nEl pago se realiza en el hotel; se aceptan efectivo, transferencia y tarjetas de crédito o débito. La reserva pendiente vence el ${new Date(reserva.vence).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })} (hora de Argentina) si no se confirma.\nConsultá o cancelá con tu código y documento en ${consulta}.\n\nHotel Alejandro I`,
     disableFileAccess: true,
     disableUrlAccess: true,
   };

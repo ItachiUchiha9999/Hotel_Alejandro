@@ -14,17 +14,17 @@ export function LineaTiempoIngresos({ reporte }: { reporte: ReporteIngresos }) {
   const compacto = (valor: number) => new Intl.NumberFormat("es-AR",{ notation: "compact", maximumFractionDigits: 1 }).format(valor);
   const etiqueta = (valor: string) => reporte.agrupacion === "MES" ? new Date(`${valor}T12:00:00Z`).toLocaleDateString("es-AR",{ month: "short",year: "2-digit",timeZone: "UTC" }) : `${valor.slice(8,10)}/${valor.slice(5,7)}`;
   return <>
-    <div className="mb-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-carbon/70"><span className="inline-flex items-center gap-2 font-semibold"><span className="h-1 w-5 rounded bg-gold-dark" />Ingreso total</span>{ORIGENES_INGRESOS.map(o => <span key={o.id} className="inline-flex items-center gap-2"><span className="h-0.5 w-5" style={{ background:o.color }} />{o.nombre}</span>)}</div>
+    <div className="mb-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-carbon/70"><span className="inline-flex items-center gap-2 font-semibold"><span className="h-1 w-5 rounded bg-gold-dark" />Ingreso total</span>{ORIGENES_INGRESOS.map(o => <span key={o.id} className="inline-flex items-center gap-2"><span className="h-1 w-5 rounded" style={{ background:o.color }} />{o.nombre}</span>)}</div>
     <div className="overflow-x-auto pb-2"><svg width={ancho} viewBox={`0 0 ${ancho} ${alto}`} className="max-w-none" role="group" aria-label="Gráfico de líneas de ingresos totales por período. Seleccioná un punto para ver el detalle.">
       <title>Evolución de ingresos: total, alojamiento, servicios y consumos, en pesos argentinos</title>
       {[0,0.25,0.5,0.75,1].map(fraccion => <g key={fraccion}><line x1={x0} x2={x1} y1={y(maximo * fraccion)} y2={y(maximo * fraccion)} stroke="#e8e0d4" strokeDasharray="4 5" /><text x={x0 - 8} y={y(maximo * fraccion) + 4} textAnchor="end" fontSize="10" fill="#756f67">${compacto(maximo * fraccion)}</text></g>)}
-      {ORIGENES_INGRESOS.map(o => <path key={o.id} d={trazado(o.id)} fill="none" stroke={o.color} strokeWidth={1.5} strokeDasharray="5 4" strokeLinejoin="round" />)}
-      <path d={trazado("total")} fill="none" stroke="#b8893f" strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+      {ORIGENES_INGRESOS.map(o => <path key={o.id} d={trazado(o.id)} fill="none" stroke={o.color} strokeWidth={2.5} strokeDasharray="7 4" strokeLinejoin="round" />)}
+      <path d={trazado("total")} fill="none" stroke="#b08d48" strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" />
       {reporte.serie.map((p,i) => <g key={p.inicio} role="button" tabIndex={0} aria-pressed={activo?.inicio === p.inicio} aria-label={`${fechaIngreso(p.desde)} al ${fechaIngreso(p.hasta)}: ${monedaIngreso(p.total)}`}
         onClick={() => setSeleccionado(p.inicio)} onFocus={() => setSeleccionado(p.inicio)} onMouseEnter={() => setSeleccionado(p.inicio)}
         onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSeleccionado(p.inicio); } }} className="cursor-pointer outline-none">
-        {activo?.inicio === p.inicio && <line x1={x(i)} x2={x(i)} y1={25} y2={y0} stroke="#b8893f" strokeDasharray="2 4" opacity={0.4} />}
-        <circle cx={x(i)} cy={y(p.total)} r={18} fill="transparent" /><circle cx={x(i)} cy={y(p.total)} r={activo?.inicio === p.inicio ? 6 : 4} fill="#b8893f" stroke="white" strokeWidth={2}><title>{monedaIngreso(p.total)}</title></circle>
+        {activo?.inicio === p.inicio && <line x1={x(i)} x2={x(i)} y1={25} y2={y0} stroke="#b08d48" strokeDasharray="3 4" opacity={0.75} />}
+        <circle cx={x(i)} cy={y(p.total)} r={18} fill="transparent" /><circle cx={x(i)} cy={y(p.total)} r={activo?.inicio === p.inicio ? 7 : 5} fill="#b08d48" stroke="white" strokeWidth={2}><title>{monedaIngreso(p.total)}</title></circle>
         <text x={x(i)} y={y0 + 25} textAnchor="middle" fontSize={10} fill="#756f67">{etiqueta(p.inicio)}</text>
       </g>)}
     </svg></div>
