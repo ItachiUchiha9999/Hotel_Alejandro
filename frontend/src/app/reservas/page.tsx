@@ -805,6 +805,7 @@ function ModalConfirmarReserva({ reserva, onCerrar, onExito }: {
  * ------------------------------------------------------------------------- */
 
 interface AcompananteForm {
+  id: number;
   personType: "ADULTO" | "MENOR";
   documentType: string;
   documentNumber: string;
@@ -812,7 +813,10 @@ interface AcompananteForm {
   lastName: string;
 }
 
+let nextAcompananteId = 1;
+
 const nuevoAcompanante = (personType: "ADULTO" | "MENOR"): AcompananteForm => ({
+  id: nextAcompananteId++,
   personType,
   documentType: "DNI",
   documentNumber: "",
@@ -846,18 +850,33 @@ function ModalCheckIn({
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Ajusta la cantidad de filas cuando recepción cambia adultos o menores
+  // Cuántos acompañantes se necesitan según adultos/menores
+  const companerosRequeridos = Math.max(0, adultos - 1) + Math.max(0, menores);
+
+  // Cuántos ya tienen todos los datos obligatorios completos
+  const companerosCompletos = companeros.filter(
+    (c) => c.documentNumber.trim() && c.firstName.trim() && c.lastName.trim()
+  ).length;
+
+  // Ajusta la cantidad de filas cuando recepción cambia adultos o menores.
+  // Preserva los datos ya ingresados de los acompañantes existentes.
   const actualizarAdultos = (nuevoTotal: number) => {
     const cant = Math.max(1, Number.isFinite(nuevoTotal) ? nuevoTotal : 1);
     setAdultos(cant);
     setCompaneros((prev) => {
       const menoresActuales = prev.filter((c) => c.personType === "MENOR");
-      const adultosActuales = prev.filter((c) => c.personType === "ADULTO");
+      const adultosExistentes = prev.filter((c) => c.personType === "ADULTO");
       const objetivo = cant - 1; // 1 es el titular
-      const nuevosAdultos =
-        adultosActuales.length < objetivo
-          ? [...adultosActuales, ...Array.from({ length: objetivo - adultosActuales.length }, () => nuevoAcompanante("ADULTO"))]
-          : adultosActuales.slice(0, objetivo);
+
+      let nuevosAdultos: AcompananteForm[];
+      if (adultosExistentes.length < objetivo) {
+        nuevosAdultos = [
+          ...adultosExistentes,
+          ...Array.from({ length: objetivo - adultosExistentes.length }, () => nuevoAcompanante("ADULTO")),
+        ];
+      } else {
+        nuevosAdultos = adultosExistentes.slice(0, objetivo);
+      }
       return [...nuevosAdultos, ...menoresActuales];
     });
   };
@@ -867,31 +886,70 @@ function ModalCheckIn({
     setMenores(cant);
     setCompaneros((prev) => {
       const adultosActuales = prev.filter((c) => c.personType === "ADULTO");
-      const menoresActuales = prev.filter((c) => c.personType === "MENOR");
-      const nuevosMenores =
-        menoresActuales.length < cant
-          ? [...menoresActuales, ...Array.from({ length: cant - menoresActuales.length }, () => nuevoAcompanante("MENOR"))]
-          : menoresActuales.slice(0, cant);
+      const menoresExistentes = prev.filter((c) => c.personType === "MENOR");
+
+      let nuevosMenores: AcompananteForm[];
+      if (menoresExistentes.length < cant) {
+        nuevosMenores = [
+          ...menoresExistentes,
+          ...Array.from({ length: cant - menoresExistentes.length }, () => nuevoAcompanante("MENOR")),
+        ];
+      } else {
+        nuevosMenores = menoresExistentes.slice(0, cant);
+      }
       return [...adultosActuales, ...nuevosMenores];
     });
   };
 
-  const modificarCompanero = (index: number, cambios: Partial<AcompananteForm>) =>
-    setCompaneros((prev) => prev.map((item, i) => (i === index ? { ...item, ...cambios } : item)));
+  const modificarCompanero = (id: number, cambios: Partial<AcompananteForm>) =>
+    setCompaneros((prev) => prev.map((item) => (item.id === id ? { ...item, ...cambios } : item)));
+
+  const agregarAcompanante = (personType: "ADULTO" | "MENOR") => {
+    setCompaneros((prev) => [...prev, nuevoAcompanante(personType)]);
+    if (personType === "ADULTO") setAdultos((a) => a + 1);
+    else setMenores((m) => m + 1);
+  };
+
+  const quitarAcompanante = (id: number) => {
+    setCompaneros((prev) => {
+      const filtrados = prev.filter((c) => c.id !== id);
+      const adultosCount = filtrados.filter((c) => c.personType === "ADULTO").length;
+      const menoresCount = filtrados.filter((c) => c.personType === "MENOR").length;
+      setAdultos(adultosCount + 1); // +1 titular
+      setMenores(menoresCount);
+      return filtrados;
+    });
+  };
 
   const totalPersonas = adultos + menores;
+
+  // Validación previa antes de enviar al backend
+  const validarAntesDeEnviar = () => {
+    if (companeros.length !== companerosRequeridos) {
+      setError(
+        `Debés registrar ${companerosRequeridos} acompañante(s) (${Math.max(0, adultos - 1)} adulto(s) + ${menores} menor(es)). Actualmente hay ${companeros.length}.`
+      );
+      return false;
+    }
+    const incompletos = companeros.filter(
+      (c) => !c.documentNumber.trim() || !c.firstName.trim() || !c.lastName.trim()
+    );
+    if (incompletos.length > 0) {
+      setError(
+        `Completá todos los datos del acompañante #${incompletos[0]!.id}${
+          incompletos.length > 1 ? ` y ${incompletos.length - 1} más` : ""
+        }.`
+      );
+      return false;
+    }
+    return true;
+  };
 
   const confirmar = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    for (let i = 0; i < companeros.length; i++) {
-      const c = companeros[i];
-      if (!c.documentNumber.trim() || !c.firstName.trim() || !c.lastName.trim()) {
-        setError(`Completá todos los datos obligatorios del acompañante #${i + 1}.`);
-        return;
-      }
-    }
+    if (!validarAntesDeEnviar()) return;
 
     setEnviando(true);
     try {
@@ -910,7 +968,6 @@ function ModalCheckIn({
       });
       onExito(actualizada);
     } catch (err) {
-      // 409 típico: la reserva ya tuvo check-in, o la fecha todavía no llegó.
       setError(err instanceof ApiError ? err.message : "No se pudo registrar el check-in.");
     } finally {
       setEnviando(false);
@@ -987,12 +1044,34 @@ function ModalCheckIn({
           {/* Acompañantes */}
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-line pb-2">
-              <h3 className="text-sm font-semibold text-carbon">
-                Huéspedes acompañantes a registrar ({companeros.length})
-              </h3>
-              <span className="text-xs text-carbon/50">
-                Obligatorio para el registro legal de ocupantes
-              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-carbon">
+                  Huéspedes acompañantes a registrar ({companeros.length})
+                </h3>
+                <span className="text-xs text-carbon/50">
+                  {companerosCompletos === companeros.length && companeros.length > 0
+                    ? "Todos completados ✓"
+                    : `${companerosCompletos}/${companerosRequeridos} completados`}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => agregarAcompanante("ADULTO")}
+                  disabled={enviando}
+                  className="text-xs text-gold hover:text-gold-dark underline underline-offset-4"
+                >
+                  + Adulto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => agregarAcompanante("MENOR")}
+                  disabled={enviando}
+                  className="text-xs text-gold hover:text-gold-dark underline underline-offset-4"
+                >
+                  + Menor
+                </button>
+              </div>
             </div>
 
             {companeros.length === 0 ? (
@@ -1000,68 +1079,109 @@ function ModalCheckIn({
                 El titular ingresa solo a la habitación. No se requieren acompañantes.
               </p>
             ) : (
-              companeros.map((huesped, index) => (
-                <div
-                  key={index}
-                  className="space-y-3 rounded-lg border border-line bg-white p-3.5 shadow-2xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-carbon">
-                      Acompañante #{index + 1}
-                    </span>
-                    <Badge tono={huesped.personType === "ADULTO" ? "info" : "activo"}>
-                      {huesped.personType === "ADULTO" ? "Adulto" : "Menor"}
-                    </Badge>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field label="Tipo Documento" htmlFor={`doc-tipo-${index}`} requerido>
-                      <Select
-                        id={`doc-tipo-${index}`}
-                        value={huesped.documentType}
-                        disabled={enviando}
-                        onChange={(e) => modificarCompanero(index, { documentType: e.target.value })}
+              companeros.map((huesped) => {
+                const estaCompleto =
+                  huesped.documentNumber.trim() &&
+                  huesped.firstName.trim() &&
+                  huesped.lastName.trim();
+                return (
+                  <div
+                    key={huesped.id}
+                    className="space-y-3 rounded-lg border border-line bg-white p-3.5 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-carbon">
+                          Acompañante {huesped.id} ({huesped.personType === "ADULTO" ? "Adulto" : "Menor"})
+                        </span>
+                        {estaCompleto && (
+                          <span className="text-xs text-green-600">✓ Completado</span>
+                        )}
+                      </div>
+                      <Badge tono={huesped.personType === "ADULTO" ? "info" : "activo"}>
+                        {huesped.personType === "ADULTO" ? "Adulto" : "Menor"}
+                      </Badge>
+                      <button
+                        type="button"
+                        onClick={() => quitarAcompanante(huesped.id)}
+                        disabled={
+                          enviando ||
+                          companeros.length <= Math.max(1, adultos + menores - 1)
+                        }
+                        className="text-xs text-danger hover:text-danger-dark underline underline-offset-4"
+                        title="Quitar acompañante"
                       >
-                        <option value="DNI">DNI</option>
-                        <option value="PASAPORTE">Pasaporte</option>
-                        <option value="CEDULA">Cédula</option>
-                        <option value="LC">LC</option>
-                        <option value="LE">LE</option>
-                      </Select>
-                    </Field>
+                        Quitar
+                      </button>
+                    </div>
 
-                    <Field label="Número Documento" htmlFor={`doc-num-${index}`} requerido>
-                      <Input
-                        id={`doc-num-${index}`}
-                        placeholder="Ej.: 40123456"
-                        value={huesped.documentNumber}
-                        disabled={enviando}
-                        onChange={(e) => modificarCompanero(index, { documentNumber: e.target.value })}
-                      />
-                    </Field>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field
+                        label="Tipo Documento"
+                        htmlFor={`doc-tipo-${huesped.id}`}
+                        requerido
+                      >
+                        <Select
+                          id={`doc-tipo-${huesped.id}`}
+                          value={huesped.documentType}
+                          disabled={enviando}
+                          onChange={(e) =>
+                            modificarCompanero(huesped.id, { documentType: e.target.value })
+                          }
+                        >
+                          <option value="DNI">DNI</option>
+                          <option value="PASAPORTE">Pasaporte</option>
+                          <option value="CEDULA">Cédula</option>
+                          <option value="LC">LC</option>
+                          <option value="LE">LE</option>
+                        </Select>
+                      </Field>
 
-                    <Field label="Nombre" htmlFor={`nombre-${index}`} requerido>
-                      <Input
-                        id={`nombre-${index}`}
-                        placeholder="Nombre completo"
-                        value={huesped.firstName}
-                        disabled={enviando}
-                        onChange={(e) => modificarCompanero(index, { firstName: e.target.value })}
-                      />
-                    </Field>
+                      <Field
+                        label="Número Documento"
+                        htmlFor={`doc-num-${huesped.id}`}
+                        requerido
+                      >
+                        <Input
+                          id={`doc-num-${huesped.id}`}
+                          placeholder="Ej.: 40123456"
+                          value={huesped.documentNumber}
+                          disabled={enviando}
+                          onChange={(e) =>
+                            modificarCompanero(huesped.id, {
+                              documentNumber: e.target.value,
+                            })
+                          }
+                        />
+                      </Field>
 
-                    <Field label="Apellido" htmlFor={`apellido-${index}`} requerido>
-                      <Input
-                        id={`apellido-${index}`}
-                        placeholder="Apellido completo"
-                        value={huesped.lastName}
-                        disabled={enviando}
-                        onChange={(e) => modificarCompanero(index, { lastName: e.target.value })}
-                      />
-                    </Field>
+                      <Field label="Nombre" htmlFor={`nombre-${huesped.id}`} requerido>
+                        <Input
+                          id={`nombre-${huesped.id}`}
+                          placeholder="Nombre completo"
+                          value={huesped.firstName}
+                          disabled={enviando}
+                          onChange={(e) =>
+                            modificarCompanero(huesped.id, { firstName: e.target.value })
+                          }
+                        />
+                      </Field>
+
+                      <Field label="Apellido" htmlFor={`apellido-${huesped.id}`} requerido>
+                        <Input
+                          id={`apellido-${huesped.id}`}
+                          placeholder="Apellido completo"
+                          value={huesped.lastName}
+                          disabled={enviando}
+                          onChange={(e) =>
+                            modificarCompanero(huesped.id, { lastName: e.target.value })
+                          }
+                        />
+                      </Field>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
