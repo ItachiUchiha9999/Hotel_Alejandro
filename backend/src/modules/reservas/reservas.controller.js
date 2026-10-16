@@ -75,8 +75,8 @@ const obtener = asyncHandler(async (req, res) => {
 const checkIn = asyncHandler(async (req, res) => {
   const data = await service.checkIn(req.params.id, {
     employeeId: actor(req, req.body),
-    actualAdults: req.body.adultosReales ?? req.body.actual_adults,
-    actualChildren: req.body.menoresReales ?? req.body.actual_children,
+    actualAdults: req.body.actualAdults ?? req.body.adultosReales ?? req.body.actual_adults,
+    actualChildren: req.body.actualChildren ?? req.body.menoresReales ?? req.body.actual_children,
     observations: req.body.observaciones ?? req.body.observations,
     guests: req.body.huespedes ?? req.body.guests ?? [],
   });

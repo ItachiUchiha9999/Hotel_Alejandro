@@ -1046,13 +1046,15 @@ function ModalCheckIn({
             <div className="flex items-center justify-between border-b border-line pb-2">
               <div>
                 <h3 className="text-sm font-semibold text-carbon">
-                  Huéspedes acompañantes a registrar ({companeros.length})
+                  Huéspedes acompañantes a registrar ({companerosRequeridos})
                 </h3>
-                <span className="text-xs text-carbon/50">
-                  {companerosCompletos === companeros.length && companeros.length > 0
-                    ? "Todos completados ✓"
-                    : `${companerosCompletos}/${companerosRequeridos} completados`}
-                </span>
+                {companerosRequeridos > 0 && (
+                  <span className="text-xs text-carbon/50">
+                    {companerosCompletos === companeros.length && companeros.length > 0
+                      ? "Todos completados ✓"
+                      : `${companerosCompletos}/${companerosRequeridos} completados`}
+                  </span>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
