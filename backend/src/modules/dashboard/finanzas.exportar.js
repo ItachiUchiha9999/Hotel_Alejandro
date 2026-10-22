@@ -3,6 +3,7 @@ const { PDFDocument } = require('pdfkit');
 
 const moneda = valor => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(valor);
 const fecha = valor => valor.split('-').reverse().join('/');
+const etiquetaPeriodo = (reporte, punto) => reporte.periodo === 'ANIO' ? new Date(punto.fecha + 'T12:00:00Z').toLocaleDateString('es-AR', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : fecha(punto.fecha);
 const porcentaje = valor => valor === null ? 'Sin ingresos' : `${valor.toLocaleString('es-AR', { maximumFractionDigits: 2 })}%`;
 
 function crearExcel(reporte) {
@@ -26,14 +27,14 @@ function crearExcel(reporte) {
 
   const serie = libro.addWorksheet('Períodos');
   serie.columns = [
-    { header: 'Fecha', key: 'fecha', width: 16 },
+    { header: reporte.periodo === 'ANIO' ? 'Mes' : 'Fecha', key: 'fecha', width: 24 },
     { header: 'Ingresos', key: 'ingresos', width: 22 },
     { header: 'Egresos', key: 'egresos', width: 22 },
     { header: 'Resultado', key: 'neto', width: 22 },
     { header: 'Margen', key: 'margen', width: 16 },
   ];
   for (const punto of reporte.serie) {
-    serie.addRow({ ...punto, margen: punto.margen_porcentual === null ? 'Sin ingresos' : punto.margen_porcentual / 100 });
+    serie.addRow({ ...punto, fecha: reporte.periodo === 'ANIO' ? etiquetaPeriodo(reporte, punto) : punto.fecha, ...(punto.pendiente ? { ingresos: 'Pendiente', egresos: 'Pendiente', neto: 'Pendiente' } : {}), margen: punto.pendiente ? 'Pendiente' : punto.margen_porcentual === null ? 'Sin ingresos' : punto.margen_porcentual / 100 });
     const fila = serie.lastRow;
     if (punto.neto < 0) fila.font = { color: { argb: 'FFB3453C' } };
   }
@@ -71,12 +72,12 @@ function crearPdf(reporte) {
     doc.on('end', () => resolve(Buffer.concat(partes)));
 
     doc.font('Helvetica-Bold').fontSize(20).fillColor('#302b25').text('Hotel Alejandro I | Rentabilidad');
-    doc.font('Helvetica').fontSize(10).text(`${reporte.periodo === 'MES' ? 'Mes' : 'Semana'} · ${fecha(reporte.desde)} al ${fecha(reporte.hasta)}`);
+    doc.font('Helvetica').fontSize(10).text(`${reporte.periodo === 'ANIO' ? 'Año' : reporte.periodo === 'MES' ? 'Mes' : 'Semana'} · ${fecha(reporte.desde)} al ${fecha(reporte.hasta)}`);
     doc.moveDown().font('Helvetica-Bold').fontSize(13).text(`Ingresos: ${moneda(reporte.totales.ingresos)}    Egresos: ${moneda(reporte.totales.egresos)}`);
     doc.text(`Resultado: ${moneda(reporte.totales.neto)}    Margen: ${porcentaje(reporte.totales.margen_porcentual)}`);
     doc.moveDown().font('Helvetica').fontSize(9).text('Los períodos con resultado negativo se resaltan en rojo. Los egresos corresponden a órdenes de pago confirmadas.');
 
-    const encabezados = ['Fecha', 'Ingresos', 'Egresos', 'Resultado', 'Margen'];
+    const encabezados = [reporte.periodo === 'ANIO' ? 'Mes' : 'Fecha', 'Ingresos', 'Egresos', 'Resultado', 'Margen'];
     const anchos = [150, 150, 150, 150, 150];
     let y = doc.y + 12;
     const cabecera = () => {
@@ -91,7 +92,7 @@ function crearPdf(reporte) {
     cabecera();
     for (const punto of reporte.serie) {
       if (y > doc.page.height - 48) { doc.addPage(); y = 36; cabecera(); }
-      const valores = [fecha(punto.fecha), moneda(punto.ingresos), moneda(punto.egresos), moneda(punto.neto), porcentaje(punto.margen_porcentual)];
+      const valores = punto.pendiente ? [etiquetaPeriodo(reporte, punto), 'Pendiente', 'Pendiente', 'Pendiente', 'Pendiente'] : [etiquetaPeriodo(reporte, punto), moneda(punto.ingresos), moneda(punto.egresos), moneda(punto.neto), porcentaje(punto.margen_porcentual)];
       let x = 36;
       valores.forEach((valor, indice) => {
         doc.font('Helvetica').fontSize(9).fillColor(punto.neto < 0 ? '#b3453c' : '#302b25').text(valor, x + 5, y + 6, { width: anchos[indice] - 10 });

@@ -1,7 +1,7 @@
 const prisma = require('../../db/prisma');
 const { invalido } = require('../../utils/AppError');
 const { consultar: consultarEgresos } = require('../egresos/egresos.fuente');
-const { calcularTotales, generarSerie } = require('./finanzas.reglas');
+const { calcularTotales, generarSerie, generarSerieAnual } = require('./finanzas.reglas');
 
 const fechaISO = (valor) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(valor || '')) return null;
@@ -46,7 +46,7 @@ const movimientosEntre = async (inicio, fin) => {
 
 const consultarFinanzas = async ({ periodo = 'MES', fecha } = {}) => {
   const modo = String(periodo).toUpperCase();
-  if (!['SEMANA', 'MES'].includes(modo)) throw invalido('El período debe ser SEMANA o MES.');
+  if (!['SEMANA', 'MES', 'ANIO'].includes(modo)) throw invalido('El período debe ser SEMANA, MES o ANIO.');
   const elegida = fecha ? fechaISO(String(fecha)) : new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
   if (!elegida) throw invalido('La fecha debe tener formato YYYY-MM-DD.');
 
@@ -56,6 +56,9 @@ const consultarFinanzas = async ({ periodo = 'MES', fecha } = {}) => {
     inicio = new Date(elegida);
     inicio.setUTCDate(inicio.getUTCDate() - ((inicio.getUTCDay() + 6) % 7));
     dias = 7;
+  } else if (modo === 'ANIO') {
+    inicio = new Date(Date.UTC(elegida.getUTCFullYear(), 0, 1));
+    dias = (Date.UTC(elegida.getUTCFullYear() + 1, 0, 1) - inicio.getTime()) / 86400000;
   } else {
     inicio = new Date(Date.UTC(elegida.getUTCFullYear(), elegida.getUTCMonth(), 1));
     dias = new Date(Date.UTC(elegida.getUTCFullYear(), elegida.getUTCMonth() + 1, 0)).getUTCDate();
@@ -64,7 +67,9 @@ const consultarFinanzas = async ({ periodo = 'MES', fecha } = {}) => {
   fin.setUTCDate(fin.getUTCDate() + dias);
   const previoFin = new Date(inicio);
   const previoInicio = new Date(inicio);
-  if (modo === 'MES') {
+  if (modo === 'ANIO') {
+    previoInicio.setUTCFullYear(previoInicio.getUTCFullYear() - 1);
+  } else if (modo === 'MES') {
     previoInicio.setUTCMonth(previoInicio.getUTCMonth() - 1);
     previoFin.setTime(inicio.getTime());
   } else {
@@ -74,7 +79,7 @@ const consultarFinanzas = async ({ periodo = 'MES', fecha } = {}) => {
   const [actualRaw, anteriorRaw] = await Promise.all([
     movimientosEntre(inicio, fin), movimientosEntre(previoInicio, previoFin),
   ]);
-  const serie = generarSerie(inicio, dias, actualRaw);
+  const serie = modo === 'ANIO' ? generarSerieAnual(inicio, actualRaw) : generarSerie(inicio, dias, actualRaw);
   return {
     periodo: modo,
     desde: fechaTexto(inicio),

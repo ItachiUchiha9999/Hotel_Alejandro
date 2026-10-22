@@ -41,4 +41,18 @@ function generarSerie(inicio, dias, movimientos) {
   });
 }
 
-module.exports = { calcularTotales, generarSerie };
+function generarSerieAnual(inicio, movimientos, hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())) {
+  const porMes = new Map();
+  for (const movimiento of movimientos) {
+    const mes = movimiento.fecha.slice(0, 7);
+    if (!porMes.has(mes)) porMes.set(mes, []);
+    porMes.get(mes).push(movimiento);
+  }
+  return Array.from({ length: 12 }, (_, mes) => {
+    const fecha = new Date(Date.UTC(inicio.getUTCFullYear(), mes, 1)).toISOString().slice(0, 10);
+    const filas = porMes.get(fecha.slice(0, 7)) ?? [];
+    return { fecha, ...calcularTotales(filas), pendiente: fecha.slice(0, 7) > hoy.slice(0, 7) && filas.length === 0 };
+  });
+}
+
+module.exports = { calcularTotales, generarSerie, generarSerieAnual };

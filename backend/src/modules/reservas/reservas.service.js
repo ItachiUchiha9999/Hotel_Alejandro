@@ -4,6 +4,9 @@ const { conflicto, invalido, noEncontrado } = require('../../utils/AppError');
 
 const ESTADOS_EDITABLES = ['PENDIENTE', 'CONFIRMADA'];
 const HORAS_PENDIENTE = 24;
+// Sumar centavos enteros evita residuos binarios en cuentas ya saldadas.
+const sumarImportes = (filas, importe) => filas.reduce((total, fila) => total + Math.round(Number(importe(fila)) * 100), 0) / 100;
+const saldoMonetario = (total, abonado) => Math.max(0, Math.round(Number(total) * 100) - Math.round(Number(abonado) * 100)) / 100;
 const asId = (value, label) => {
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) throw invalido(`${label} no es válido.`);
@@ -482,9 +485,9 @@ const pagosAlojamiento = async (id) => {
     JOIN "employees" e ON e.employees_id = rp.employees_id
     WHERE rp.reservation_id = ${reservationId}
     ORDER BY rp.paid_at DESC, rp.reservation_payment_id DESC`;
-  const abonado = pagos.reduce((sum, pago) => sum + Number(pago.amount), 0);
+  const abonado = sumarImportes(pagos, pago => pago.amount);
   const total = Number(reserva.total_amount ?? 0);
-  return { reservation_id: reservationId, total_alojamiento: total, abonado, saldo: Math.max(0, total - abonado), pagos };
+  return { reservation_id: reservationId, total_alojamiento: total, abonado, saldo: saldoMonetario(total, abonado), pagos };
 };
 
 const estadoCuenta = async (id) => {
@@ -515,24 +518,24 @@ const estadoCuenta = async (id) => {
     ]);
 
     const totalAlojamiento = Number(reserva.total_amount ?? 0);
-    const alojamientoAbonado = pagos.reduce((total, pago) => total + Number(pago.amount), 0);
-    const totalConsumos = cargos.reduce((total, cargo) => total + Number(cargo.total_amount), 0);
-    const consumosAbonados = cargos.reduce((total, cargo) => total + (cargo.paid_at ? Number(cargo.total_amount) : 0), 0);
-    const totalCuenta = totalAlojamiento + totalConsumos;
-    const totalAbonado = alojamientoAbonado + consumosAbonados;
+    const alojamientoAbonado = sumarImportes(pagos, pago => pago.amount);
+    const totalConsumos = sumarImportes(cargos, cargo => cargo.total_amount);
+    const consumosAbonados = sumarImportes(cargos, cargo => cargo.paid_at ? cargo.total_amount : 0);
+    const totalCuenta = sumarImportes([totalAlojamiento, totalConsumos], importe => importe);
+    const totalAbonado = sumarImportes([alojamientoAbonado, consumosAbonados], importe => importe);
     return {
       reservation_id: reservationId,
       total_alojamiento: totalAlojamiento,
       abonado_alojamiento: alojamientoAbonado,
-      saldo_alojamiento: Math.max(0, totalAlojamiento - alojamientoAbonado),
+      saldo_alojamiento: saldoMonetario(totalAlojamiento, alojamientoAbonado),
       pagos_alojamiento: pagos,
       total_consumos: totalConsumos,
       consumos_abonados: consumosAbonados,
-      consumos_pendientes: Math.max(0, totalConsumos - consumosAbonados),
+      consumos_pendientes: saldoMonetario(totalConsumos, consumosAbonados),
       cargos,
       total_cuenta: totalCuenta,
       total_abonado: totalAbonado,
-      saldo_total: Math.max(0, totalCuenta - totalAbonado),
+      saldo_total: saldoMonetario(totalCuenta, totalAbonado),
     };
   }, { isolationLevel: 'RepeatableRead' });
 };
@@ -542,7 +545,7 @@ const registrarPagoAlojamiento = async (id, { amount, paymentMethodId, paymentRe
   const empleado = asId(employeeId, 'El usuario');
   const metodoId = asId(paymentMethodId, 'El medio de pago');
   const importe = Number(amount);
-  if (!Number.isFinite(importe) || importe <= 0 || Math.round(importe * 100) !== importe * 100) {
+  if (!Number.isFinite(importe) || importe <= 0 || Math.abs(importe * 100 - Math.round(importe * 100)) > 0.000001) {
     throw invalido('El importe debe ser positivo y tener como máximo dos decimales.');
   }
   const referencia = String(paymentReference || '').trim();

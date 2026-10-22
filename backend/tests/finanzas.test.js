@@ -66,3 +66,37 @@ test('REP-03: PDF y Excel respetan período, margen y días negativos', async ()
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
   assert.match(pdf.toString('latin1'), /%%EOF/);
 });
+test('Vista anual: agrupa doce meses en centavos y distingue pendientes de meses sin movimientos', () => {
+  const { generarSerieAnual } = require('../src/modules/dashboard/finanzas.reglas');
+  const filas = [
+    { fecha: '2024-01-01', tipo: 'INGRESO', importe: 0.1 },
+    { fecha: '2024-01-31', tipo: 'INGRESO', importe: 0.2 },
+    { fecha: '2024-02-29', tipo: 'INGRESO', importe: 100 },
+    { fecha: '2024-02-29', tipo: 'EGRESO', importe: 130 },
+  ];
+  const serie = generarSerieAnual(new Date('2024-01-01T00:00:00Z'), filas, '2024-10-22');
+  assert.equal(serie.length, 12); assert.equal(serie[0].ingresos, 0.3);
+  assert.equal(serie[1].neto, -30); assert.equal(serie[1].margen_porcentual, -30);
+  assert.equal(serie[2].pendiente, false); assert.equal(serie[2].neto, 0);
+  assert.equal(serie[10].pendiente, true); assert.equal(serie[11].pendiente, true);
+  assert.equal(serie.reduce((s, m) => s + Math.round(m.ingresos * 100), 0), 10030);
+});
+
+test('Vista anual: años pasados sin datos son cero; futuros sin datos son pendientes', () => {
+  const { generarSerieAnual } = require('../src/modules/dashboard/finanzas.reglas');
+  assert.ok(generarSerieAnual(new Date('2025-01-01T00:00:00Z'), [], '2026-10-22').every(m => !m.pendiente && m.neto === 0));
+  assert.ok(generarSerieAnual(new Date('2027-01-01T00:00:00Z'), [], '2026-10-22').every(m => m.pendiente));
+});
+
+test('Vista anual: exporta doce meses y marca pendientes en Excel y PDF', async () => {
+  const { generarSerieAnual } = require('../src/modules/dashboard/finanzas.reglas');
+  const movimientos = [{ fecha: '2026-10-22', tipo: 'INGRESO', detalle: 'Alojamiento', importe: 100 }];
+  const reporte = { periodo: 'ANIO', desde: '2026-01-01', hasta: '2026-12-31',
+    serie: generarSerieAnual(new Date('2026-01-01T00:00:00Z'), movimientos, '2026-10-22'),
+    totales: calcularTotales(movimientos), comparacion: { totales: calcularTotales([]) }, movimientos };
+  const libro = crearExcel(reporte); const hoja = libro.getWorksheet('Períodos');
+  assert.equal(hoja.rowCount, 13); assert.match(String(hoja.getCell('A11').value), /octubre/);
+  assert.equal(hoja.getCell('B11').value, 100); assert.equal(hoja.getCell('B12').value, 'Pendiente');
+  assert.equal(libro.getWorksheet('Resumen').getCell('B5').value, 100);
+  const pdf = await crearPdf(reporte); assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+});

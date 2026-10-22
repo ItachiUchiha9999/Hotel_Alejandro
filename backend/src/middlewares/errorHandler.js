@@ -10,6 +10,15 @@ function errorHandler(err, req, res, _next) {
     return res.status(err.status || 400).json({ ok: false, message: err.message });
   }
 
+  // Una transacción concurrente se revierte sin guardar datos parciales.
+  // No reintentar pagos automáticamente: pedir que se revise el saldo actual.
+  if (err.code === 'P2034' || (err.code === 'P2010' && ['40001', '40P01'].includes(err.meta?.code))) {
+    return res.status(409).json({
+      ok: false,
+      message: 'Los datos cambiaron mientras guardabas. Actualizá la cuenta y revisá el saldo antes de continuar.',
+    });
+  }
+
   // 2. Errores conocidos de Prisma
   if (err.code === 'P2002') {
     const campo = err.meta?.target?.[0] ?? 'ese valor';

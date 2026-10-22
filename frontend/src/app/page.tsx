@@ -8,8 +8,8 @@ import { Badge, Button, Card, InfoBox, Table, THead, TH, TBody, TR, TD } from "@
 import { api, authHeaders, urlDescarga, getReporteOcupacionTemporadas, type ReporteOcupacionTemporadas } from "@/lib/api";
 import type { FilaSaldo, Movimiento } from "@/lib/types";
 
-type PeriodoFinanciero = "SEMANA" | "MES";
-interface PuntoFinanciero { fecha: string; ingresos: number; egresos: number; neto: number; margen_porcentual: number | null; }
+type PeriodoFinanciero = "SEMANA" | "MES" | "ANIO";
+interface PuntoFinanciero { pendiente?: boolean; fecha: string; ingresos: number; egresos: number; neto: number; margen_porcentual: number | null; }
 interface MovimientoFinanciero { fecha: string; tipo: "INGRESO" | "EGRESO"; detalle: string; importe: number; }
 interface ReporteFinanciero { periodo: PeriodoFinanciero; desde: string; hasta: string; serie: PuntoFinanciero[]; totales: { ingresos: number; egresos: number; neto: number; margen_porcentual: number | null }; comparacion: { desde: string; hasta: string; totales: { ingresos: number; egresos: number; neto: number; margen_porcentual: number | null } }; movimientos: MovimientoFinanciero[]; }
 
@@ -23,25 +23,78 @@ const monedaCompacta = (valor: number) => new Intl.NumberFormat("es-AR", { notat
 const variacionTexto = (actual: number, anterior: number) => anterior === 0 ? (actual === 0 ? "Sin cambios respecto al período anterior" : "Nuevo en este período") : `${actual - anterior >= 0 ? "+" : ""}${(((actual - anterior) / anterior) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}% vs. período anterior`;
 const fechaCorta = (valor: string) => new Date(`${valor}T12:00:00`).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
 
-function GraficoFinanciero({ puntos }: { puntos: PuntoFinanciero[] }) {
-  const ancho = 900; const alto = 280; const margenX = 46; const margenY = 24;
-  const valores = puntos.flatMap((p) => [p.ingresos, p.egresos, p.neto]);
-  const maximo = Math.max(...valores, 1); const minimo = Math.min(...valores, 0);
-  const rango = maximo - minimo || 1;
-  const x = (i: number) => margenX + (puntos.length <= 1 ? 0 : (i / (puntos.length - 1)) * (ancho - margenX * 2));
-  const y = (n: number) => margenY + ((maximo - n) / rango) * (alto - margenY * 2 - 22);
-  const path = (clave: "ingresos" | "egresos" | "neto") => puntos.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p[clave])}`).join(" ");
-  const etiquetas = puntos.length > 10 ? new Set([0, ...Array.from({ length: Math.ceil(puntos.length / 5) }, (_, i) => Math.min((i + 1) * 5 - 1, puntos.length - 1)), puntos.length - 1]) : null;
-  const ticks = [maximo, (maximo + minimo) / 2, minimo];
-  return <div className="overflow-x-auto">
-    <svg viewBox={`0 0 ${ancho} ${alto}`} className="min-w-162.5 w-full" role="img" aria-label="Gráfico diario de ingresos, egresos y resultado neto">
-      {ticks.map((tick, index) => <g key={`${tick}-${index}`}><line x1={margenX} x2={ancho - margenX} y1={y(tick)} y2={y(tick)} stroke="#e8e0d4" strokeDasharray="4 5" /><text x={margenX - 7} y={y(tick) + 4} textAnchor="end" fontSize="10" fill="#756f67">${monedaCompacta(tick)}</text></g>)}
-      {minimo < 0 && maximo > 0 && <line x1={margenX} x2={ancho - margenX} y1={y(0)} y2={y(0)} stroke="#8c8172" strokeWidth="1.5" />}
-      <path d={path("ingresos")} fill="none" stroke="#3d8065" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-      <path d={path("egresos")} fill="none" stroke="#bd6b57" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-      <path d={path("neto")} fill="none" stroke="#c99f52" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-      {puntos.map((p, i) => <g key={p.fecha}><circle cx={x(i)} cy={y(p.ingresos)} r="3" fill="#3d8065"><title>{p.fecha}: ingresos {moneda(p.ingresos)}</title></circle><circle cx={x(i)} cy={y(p.egresos)} r="3" fill="#bd6b57"><title>{p.fecha}: egresos {moneda(p.egresos)}</title></circle><circle cx={x(i)} cy={y(p.neto)} r={p.neto < 0 ? "5" : "3"} fill={p.neto < 0 ? "#b3453c" : "#c99f52"}><title>{p.fecha}: resultado {moneda(p.neto)}{p.neto < 0 ? " (negativo)" : ""}</title></circle>{(!etiquetas || etiquetas.has(i)) && <text x={x(i)} y={alto - 4} textAnchor="middle" fontSize="10" fill="#756f67">{fechaCorta(p.fecha)}</text>}</g>)}
-    </svg>
+function GraficoFinanciero({ puntos, anual = false }: { puntos: PuntoFinanciero[]; anual?: boolean }) {
+  const [fechaSeleccionada, setFechaSeleccionada] = useState<string | null>(null);
+  const hayMovimientos = puntos.some(p => p.ingresos !== 0 || p.egresos !== 0);
+  if (!hayMovimientos && !anual) return <p className="rounded-lg bg-bone/45 px-5 py-10 text-center text-sm text-[#514d46]">No hay cobros ni pagos registrados en este período.</p>;
+
+  const ancho = Math.max(900, puntos.length * 64 + 104);
+  const alto = 380;
+  const izquierda = 76;
+  const derecha = 20;
+  const arriba = 24;
+  const abajo = 48;
+  const valores = puntos.flatMap(p => [p.ingresos, p.egresos, p.neto]);
+  const mayorValor = Math.max(...valores, 0);
+  const menorValor = Math.min(...valores, 0);
+  // Escala compartida: las barras parten de cero y la línea puede bajar de él.
+  const amplitud = Math.max(mayorValor, Math.abs(menorValor), 1);
+  const potencia = 10 ** Math.floor(Math.log10(amplitud / 3));
+  const paso = Math.ceil(amplitud / 3 / potencia) * potencia;
+  const maximo = Math.max(paso, Math.ceil(mayorValor / paso) * paso);
+  const minimo = Math.floor(menorValor / paso) * paso;
+  const ticks = Array.from({ length: Math.round((maximo - minimo) / paso) + 1 }, (_, i) => minimo + i * paso);
+  const espacio = (ancho - izquierda - derecha) / puntos.length;
+  const anchoBarra = Math.min(espacio * 0.40, 42);
+  const x = (i: number) => izquierda + espacio * (i + 0.5);
+  const y = (valor: number) => arriba + (maximo - valor) / (maximo - minimo) * (alto - arriba - abajo);
+  const cero = y(0);
+  const linea = puntos.map((p, i) => p.pendiente ? "" : `${i === 0 || puntos[i - 1].pendiente ? "M" : "L"} ${x(i)} ${y(p.neto)}`).join(" ");
+  const indiceInicial = puntos.reduce((ultimo, p, i) => p.ingresos !== 0 || p.egresos !== 0 ? i : ultimo, 0);
+  const indiceBuscado = puntos.findIndex(p => p.fecha === fechaSeleccionada);
+  const indiceSeleccionado = indiceBuscado >= 0 ? indiceBuscado : indiceInicial;
+  const seleccionado = puntos[indiceSeleccionado];
+  const fechaCompleta = new Date(`${seleccionado.fecha}T12:00:00`).toLocaleDateString("es-AR", anual ? { month: "long", year: "numeric" } : { day: "numeric", month: "long" });
+  const estado = seleccionado.pendiente ? "Mes pendiente" : seleccionado.neto < 0 ? "Resultado negativo" : seleccionado.neto > 0 ? "Resultado positivo" : "Sin diferencia";
+
+  return <div>
+    <p className="mb-3 text-xs leading-5 text-[#514d46]">Compará ingresos y egresos de cada {anual ? "mes" : "día"}. La línea amarilla muestra el resultado. Deslizá para recorrer el período y seleccioná {anual ? "un mes" : "un día"} para ver el detalle.</p>
+    <div className="overflow-x-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold" role="region" aria-label={anual ? "Comparativa financiera anual por mes" : "Comparativa financiera diaria; desplazate horizontalmente para ver todos los días"} tabIndex={0}>
+      <svg viewBox={`0 0 ${ancho} ${alto}`} className="w-full" style={{ minWidth: ancho }} role="group" aria-label={`Barras de ingresos y egresos y línea del resultado neto por ${anual ? "mes" : "día"}`}>
+        {ticks.map(tick => <g key={tick}>
+          <line x1={izquierda} x2={ancho - derecha} y1={y(tick)} y2={y(tick)} stroke={tick === 0 ? "#8c8172" : "#e8e0d4"} strokeWidth={tick === 0 ? 1.5 : 1} opacity={tick === 0 ? 1 : 0.55} />
+          <text x={izquierda - 12} y={y(tick) + 4} textAnchor="end" fontSize="12" fill="#514d46">{tick < 0 ? "−" : ""}${monedaCompacta(Math.abs(tick))}</text>
+        </g>)}
+        <rect x={izquierda + espacio * indiceSeleccionado} y={arriba} width={espacio} height={alto - arriba - abajo} fill="#f2f3f1" opacity="0.8" pointerEvents="none" />
+        {puntos.map((p, i) => <g key={`barras-${p.fecha}`}>
+          {p.pendiente && <rect x={izquierda + espacio * i} y={arriba} width={espacio} height={alto - arriba - abajo} fill="#faf9f6" />}
+          {p.ingresos !== 0 && <rect x={x(i) - anchoBarra - 2} y={Math.min(cero, y(p.ingresos))} width={anchoBarra} height={Math.abs(cero - y(p.ingresos))} rx="1" fill="#008580" />}
+          {p.egresos !== 0 && <rect x={x(i) + 2} y={Math.min(cero, y(p.egresos))} width={anchoBarra} height={Math.abs(cero - y(p.egresos))} rx="1" fill="#d63f3f" />}
+          <text x={x(i)} y={alto - 16} textAnchor="middle" fontSize="13" fill="#514d46">{anual ? new Date(`${p.fecha}T12:00:00`).toLocaleDateString("es-AR", { month: "short" }).replace(".", "").toUpperCase() : p.fecha.slice(-2)}</text>
+          {p.pendiente && <text x={x(i)} y={alto - 2} textAnchor="middle" fontSize="10" fill="#756f67">Pendiente</text>}
+        </g>)}
+        <path d={linea} fill="none" stroke="#e8b943" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
+        {puntos.map((p, i) => <g key={p.fecha}>
+          {i === indiceSeleccionado && !p.pendiente && <circle cx={x(i)} cy={y(p.neto)} r={i === indiceSeleccionado ? 4.5 : 3} fill={p.neto < 0 ? "#b3453c" : "#b1851a"} stroke="white" strokeWidth="1.5" pointerEvents="none" />}
+          <rect x={izquierda + espacio * i} y={arriba} width={espacio} height={alto - arriba - abajo} fill="transparent" role="button" tabIndex={0}
+            aria-label={p.pendiente ? `${p.fecha.slice(0, 7)}: mes pendiente` : `${fechaCorta(p.fecha)}: ingresos ${moneda(p.ingresos)}, egresos ${moneda(p.egresos)}, resultado ${moneda(p.neto)}. Ver detalle.`}
+            aria-pressed={i === indiceSeleccionado}
+            className="cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-gold"
+            onMouseEnter={() => setFechaSeleccionada(p.fecha)} onFocus={() => setFechaSeleccionada(p.fecha)} onClick={() => setFechaSeleccionada(p.fecha)}
+            onKeyDown={evento => {
+              if (evento.key === "Enter" || evento.key === " ") { evento.preventDefault(); setFechaSeleccionada(p.fecha); }
+            }}>
+            <title>{`${fechaCorta(p.fecha)} · Ingresos: ${moneda(p.ingresos)} · Egresos: ${moneda(p.egresos)} · Resultado: ${moneda(p.neto)}`}</title>
+          </rect>
+        </g>)}
+      </svg>
+    </div>
+    <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg bg-bone/45 px-4 py-3 text-sm sm:grid-cols-4" aria-label={anual ? "Detalle del mes seleccionado" : "Detalle del día seleccionado"}>
+      <div><p className="text-xs text-[#514d46]">{anual ? "Mes seleccionado" : "Día seleccionado"}</p><p className="mt-1 font-medium text-carbon">{fechaCompleta}</p></div>
+      <div><p className="text-xs text-[#514d46]">Ingresos cobrados</p><p className="mt-1 font-semibold tabular-nums text-[#2d654f]">{seleccionado.pendiente ? "—" : moneda(seleccionado.ingresos)}</p></div>
+      <div><p className="text-xs text-[#514d46]">Egresos pagados</p><p className="mt-1 font-semibold tabular-nums text-[#934c3b]">{seleccionado.pendiente ? "—" : moneda(seleccionado.egresos)}</p></div>
+      <div><p className="text-xs text-[#514d46]">{estado}</p><p className={`mt-1 font-semibold tabular-nums ${seleccionado.neto < 0 ? "text-red-700" : seleccionado.neto > 0 ? "text-[#2d654f]" : "text-carbon"}`}>{seleccionado.pendiente ? "—" : moneda(seleccionado.neto)}</p></div>
+    </div>
   </div>;
 }
 
@@ -229,9 +282,9 @@ export default function InicioPage() {
       <Card className="mb-6" titulo="Resumen financiero" descripcion="Ingresos cobrados, egresos pagados y resultado neto por fecha.">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-lg border border-line bg-bone/40 p-1" aria-label="Período del reporte">
-            {(["SEMANA", "MES"] as const).map((opcion) => <button key={opcion} type="button" onClick={() => setPeriodo(opcion)} aria-pressed={periodo === opcion} className={`rounded-md px-4 py-2 text-sm transition-colors ${periodo === opcion ? "bg-carbon text-white" : "text-carbon/65 hover:bg-white"}`}>{opcion === "SEMANA" ? "Semana" : "Mes"}</button>)}
+            {(["SEMANA", "MES", "ANIO"] as const).map((opcion) => <button key={opcion} type="button" onClick={() => setPeriodo(opcion)} aria-pressed={periodo === opcion} className={`rounded-md px-4 py-2 text-sm transition-colors ${periodo === opcion ? "bg-carbon text-white" : "text-carbon/65 hover:bg-white"}`}>{opcion === "SEMANA" ? "Semana" : opcion === "MES" ? "Mes" : "Año"}</button>)}
           </div>
-          <label className="flex items-center gap-2 text-sm text-carbon/65">{periodo === "SEMANA" ? "Fecha de la semana" : "Fecha del mes"}<input type="date" value={fechaFinanzas} onChange={(e) => setFechaFinanzas(e.target.value)} className="rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon focus:border-gold focus:outline-none" /></label>
+          <label className="flex items-center gap-2 text-sm text-carbon/65">{periodo === "ANIO" ? "Año del reporte" : periodo === "SEMANA" ? "Fecha de la semana" : "Fecha del mes"}{periodo === "ANIO" ? <select value={fechaFinanzas.slice(0, 4)} onChange={e => setFechaFinanzas(`${e.target.value}-01-01`)} className="rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon focus:border-gold focus:outline-none">{Array.from({ length: new Date().getFullYear() - 1998 }, (_, i) => new Date().getFullYear() + 1 - i).map(anio => <option key={anio} value={anio}>{anio}</option>)}</select> : <input type="date" value={fechaFinanzas} onChange={(e) => setFechaFinanzas(e.target.value)} className="rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon focus:border-gold focus:outline-none" />}</label>
           <div className="flex gap-2">
             <Button variante="secundario" disabled={!reporte || cargandoReporte || exportando !== null} cargando={exportando === "pdf"} onClick={() => exportarFinanzas("pdf")}><Download size={15} />PDF</Button>
             <Button variante="secundario" disabled={!reporte || cargandoReporte || exportando !== null} cargando={exportando === "xlsx"} onClick={() => exportarFinanzas("xlsx")}><Download size={15} />Excel</Button>
@@ -243,21 +296,21 @@ export default function InicioPage() {
           <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-lg border border-success/20 bg-success/5 p-4"><p className="text-xs uppercase tracking-wide text-carbon/55">Ingresos registrados</p><p className="mt-1 text-xl font-semibold tabular-nums text-success">{cargandoReporte ? "…" : moneda(reporte?.totales.ingresos ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">{variacionTexto(reporte.totales.ingresos, reporte.comparacion.totales.ingresos)}</p>}</div>
             <div className="rounded-lg border border-red-200 bg-red-50/60 p-4"><p className="text-xs uppercase tracking-wide text-carbon/55">Egresos pagados</p><p className="mt-1 text-xl font-semibold tabular-nums text-red-700">{cargandoReporte ? "…" : moneda(reporte?.totales.egresos ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">{variacionTexto(reporte.totales.egresos, reporte.comparacion.totales.egresos)}</p>}</div>
-            <div className={`rounded-lg border p-4 ${(reporte?.totales.neto ?? 0) < 0 ? "border-red-300 bg-red-50" : "border-gold/25 bg-gold/5"}`}><p className="text-xs uppercase tracking-wide text-carbon/55">Resultado del período</p><p className={`mt-1 text-xl font-semibold tabular-nums ${(reporte?.totales.neto ?? 0) < 0 ? "text-red-700" : "text-carbon"}`}>{cargandoReporte ? "…" : moneda(reporte?.totales.neto ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">Comparado con {fechaCorta(reporte.comparacion.desde)} — {fechaCorta(reporte.comparacion.hasta)}</p>}</div>
+            <div className={`rounded-lg border p-4 ${(reporte?.totales.neto ?? 0) < 0 ? "border-red-300 bg-red-50" : "border-gold/25 bg-gold/5"}`}><p className="text-xs uppercase tracking-wide text-carbon/55">Resultado del período</p><p className={`mt-1 text-xl font-semibold tabular-nums ${(reporte?.totales.neto ?? 0) < 0 ? "text-red-700" : "text-carbon"}`}>{cargandoReporte ? "…" : moneda(reporte?.totales.neto ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">Comparado con {periodo === "ANIO" ? reporte.comparacion.desde.slice(0, 4) : `${fechaCorta(reporte.comparacion.desde)} — ${fechaCorta(reporte.comparacion.hasta)}`}</p>}</div>
             <div className="rounded-lg border border-line bg-white p-4"><p className="text-xs uppercase tracking-wide text-carbon/55">Margen porcentual</p><p className={`mt-1 text-xl font-semibold tabular-nums ${(reporte?.totales.margen_porcentual ?? 0) < 0 ? "text-red-700" : "text-carbon"}`}>{cargandoReporte ? "…" : reporte?.totales.margen_porcentual === null ? "Sin ingresos" : `${reporte?.totales.margen_porcentual.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</p><p className="mt-1 text-xs text-carbon/55">Resultado ÷ ingresos</p></div>
           </div>
           {cargandoReporte && !reporte ? <p className="py-12 text-center text-sm text-carbon/50">Cargando movimientos financieros…</p> : reporte && <>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-carbon/50"><span>{fechaCorta(reporte.desde)} — {fechaCorta(reporte.hasta)}</span><div className="flex flex-wrap gap-x-4 gap-y-1"><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" />Ingresos</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#bd6b57]" />Egresos</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-gold" />Resultado</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-danger" />Resultado negativo</span></div></div>
-            <GraficoFinanciero puntos={reporte.serie} />
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-carbon/50"><span>{periodo === "ANIO" ? `Año ${reporte.desde.slice(0, 4)}` : `${fechaCorta(reporte.desde)} — ${fechaCorta(reporte.hasta)}`}</span><div className="flex flex-wrap gap-x-4 gap-y-1"><span className="flex items-center gap-1.5"><i className="h-3 w-3 bg-[#008580]" />Ingresos</span><span className="flex items-center gap-1.5"><i className="h-3 w-3 bg-[#d63f3f]" />Egresos</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-[#e8b943]" />Resultado</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-danger" />Resultado negativo</span></div></div>
+            <GraficoFinanciero puntos={reporte.serie} anual={periodo === "ANIO"} />
             <section className="mt-5 border-t border-line pt-5" aria-labelledby="resultado-diario-titulo">
-              <h3 id="resultado-diario-titulo" className="mb-3 font-serif text-lg text-carbon">Resultado por día</h3>
-              <Table><THead><TH>Fecha</TH><TH className="text-right">Ingresos</TH><TH className="text-right">Egresos</TH><TH className="text-right">Resultado</TH><TH className="text-right">Margen</TH></THead><TBody>
+              <h3 id="resultado-diario-titulo" className="mb-3 font-serif text-lg text-carbon">Resultado por {periodo === "ANIO" ? "mes" : "día"}</h3>
+              <Table><THead><TH>{periodo === "ANIO" ? "Mes" : "Fecha"}</TH><TH className="text-right">Ingresos</TH><TH className="text-right">Egresos</TH><TH className="text-right">Resultado</TH><TH className="text-right">Margen</TH></THead><TBody>
                 {reporte.serie.map(punto => <TR key={punto.fecha} className={punto.neto < 0 ? "bg-red-50" : undefined}>
-                  <TD>{fechaCorta(punto.fecha)}</TD>
-                  <TD className="text-right tabular-nums">{moneda(punto.ingresos)}</TD>
-                  <TD className="text-right tabular-nums">{moneda(punto.egresos)}</TD>
-                  <TD className={`text-right font-medium tabular-nums ${punto.neto < 0 ? "text-red-700" : ""}`}>{punto.neto < 0 && <Badge tono="alerta">Negativo</Badge>} {moneda(punto.neto)}</TD>
-                  <TD className={`text-right tabular-nums ${punto.neto < 0 ? "text-red-700" : ""}`}>{punto.margen_porcentual === null ? "—" : `${punto.margen_porcentual.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</TD>
+                  <TD>{periodo === "ANIO" ? new Date(`${punto.fecha}T12:00:00`).toLocaleDateString("es-AR", { month: "long" }) : fechaCorta(punto.fecha)}{punto.pendiente && <span className="ml-2 text-xs text-carbon/60">Pendiente</span>}</TD>
+                  <TD className="text-right tabular-nums">{punto.pendiente ? "—" : moneda(punto.ingresos)}</TD>
+                  <TD className="text-right tabular-nums">{punto.pendiente ? "—" : moneda(punto.egresos)}</TD>
+                  <TD className={`text-right font-medium tabular-nums ${punto.neto < 0 ? "text-red-700" : ""}`}>{punto.neto < 0 && <Badge tono="alerta">Negativo</Badge>} {punto.pendiente ? "—" : moneda(punto.neto)}</TD>
+                  <TD className={`text-right tabular-nums ${punto.neto < 0 ? "text-red-700" : ""}`}>{punto.pendiente || punto.margen_porcentual === null ? "—" : `${punto.margen_porcentual.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</TD>
                 </TR>)}
               </TBody></Table>
             </section>
