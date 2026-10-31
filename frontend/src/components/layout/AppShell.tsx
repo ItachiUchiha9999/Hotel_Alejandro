@@ -2,15 +2,78 @@
 
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Header } from "./Header";
-import { Sidebar } from "./Sidebar";
+import { PageContainer } from "./PageContainer";
 import { api, ApiError } from "@/lib/api";
 import { inicioPorRol, rutaPermitida, type RolSistema } from "@/lib/permisos";
+import { ToastProvider } from "@/components/ui/Toast";
 
 type UsuarioSesion = { employees_id: number; rol: RolSistema; nombre: string; email: string };
 
+// Breadcrumb mapping for routes
+const routeBreadcrumbs: Record<string, Array<{ label: string; href?: string; current?: boolean }>> = {
+  "/": [{ label: "Dashboard", current: true }],
+  "/reservas": [{ label: "Reservas", href: "/reservas", current: true }],
+  "/reservas/checkin": [
+    { label: "Reservas", href: "/reservas" },
+    { label: "Check-in / Check-out", current: true }
+  ],
+  "/reservas/calendario": [
+    { label: "Reservas", href: "/reservas" },
+    { label: "Calendario", current: true }
+  ],
+  "/habitaciones": [{ label: "Habitaciones", href: "/habitaciones", current: true }],
+  "/habitaciones/tipos": [
+    { label: "Habitaciones", href: "/habitaciones" },
+    { label: "Tipos de habitación", current: true }
+  ],
+  "/habitaciones/tarifas": [
+    { label: "Habitaciones", href: "/habitaciones" },
+    { label: "Tarifas", current: true }
+  ],
+  "/habitaciones/housekeeping": [
+    { label: "Habitaciones", href: "/habitaciones" },
+    { label: "Housekeeping", current: true }
+  ],
+  "/huespedes": [{ label: "Huéspedes", href: "/huespedes", current: true }],
+  "/inventario": [{ label: "Inventario", href: "/inventario", current: true }],
+  "/inventario/articulos": [
+    { label: "Inventario", href: "/inventario" },
+    { label: "Artículos", current: true }
+  ],
+  "/inventario/depositos": [
+    { label: "Inventario", href: "/inventario" },
+    { label: "Depósitos", current: true }
+  ],
+  "/inventario/movimientos": [
+    { label: "Inventario", href: "/inventario" },
+    { label: "Movimientos", current: true }
+  ],
+  "/inventario/categorias": [
+    { label: "Inventario", href: "/inventario" },
+    { label: "Categorías", current: true }
+  ],
+  "/proveedores": [{ label: "Proveedores", href: "/proveedores", current: true }],
+  "/proveedores/ordenes-compra": [
+    { label: "Proveedores", href: "/proveedores" },
+    { label: "Órdenes de compra", current: true }
+  ],
+  "/proveedores/comprobantes": [
+    { label: "Proveedores", href: "/proveedores" },
+    { label: "Comprobantes", current: true }
+  ],
+  "/proveedores/ordenes-pago": [
+    { label: "Proveedores", href: "/proveedores" },
+    { label: "Órdenes de pago", current: true }
+  ],
+  "/proveedores/cuenta-corriente": [
+    { label: "Proveedores", href: "/proveedores" },
+    { label: "Cuenta corriente", current: true }
+  ],
+  "/reportes": [{ label: "Reportes", href: "/reportes", current: true }],
+  "/configuracion": [{ label: "Configuración", href: "/configuracion", current: true }],
+};
+
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [menuAbierto, setMenuAbierto] = useState(false);
   const [usuario, setUsuario] = useState<UsuarioSesion | null>(null);
   const [sesionVerificada, setSesionVerificada] = useState(false);
   const pathname = usePathname();
@@ -48,26 +111,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname, router]);
 
   if (pathname === "/login" || pathname === "/web" || pathname.startsWith("/web/")) {
-    return <>{children}</>;
+    return (
+      <ToastProvider>
+        {children}
+      </ToastProvider>
+    );
   }
   if (!sesionVerificada || !usuario) {
-    return <main className="grid min-h-screen place-items-center bg-bone text-sm text-carbon/60">Verificando permisos de acceso…</main>;
+    return (
+      <ToastProvider>
+        <main className="grid min-h-screen place-items-center bg-neutral-50 text-sm text-neutral-500">
+          Verificando permisos de acceso…
+        </main>
+      </ToastProvider>
+    );
   }
 
+  // Get breadcrumbs for current route
+  const breadcrumbs = routeBreadcrumbs[pathname] || [{ label: "Hotel Alejandro I", current: true }];
+
   return (
-    <div className="flex min-h-screen flex-col bg-bone">
-      <Header
-        onAbrirMenu={() => setMenuAbierto(true)}
-        usuario={{ iniciales: usuario.nombre.split(/\s+/).map((parte) => parte[0]).slice(0, 2).join("").toUpperCase(), nombre: usuario.nombre, rol: usuario.rol }}
-      />
-
-      <div className="flex flex-1">
-        <Sidebar abierto={menuAbierto} onCerrar={() => setMenuAbierto(false)} rol={usuario.rol} />
-
-        <main className="min-w-0 flex-1 px-4 py-8 md:px-8">
-          <div className="mx-auto w-full max-w-5xl">{children}</div>
-        </main>
-      </div>
-    </div>
+    <ToastProvider>
+      <PageContainer breadcrumbs={breadcrumbs}>
+        {children}
+      </PageContainer>
+    </ToastProvider>
   );
 }

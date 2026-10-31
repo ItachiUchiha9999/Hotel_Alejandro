@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Card, EmptyState, InfoBox, Input, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { api, ApiError } from "@/lib/api";
 import type { FilaSaldo } from "@/lib/types";
 
@@ -78,7 +79,7 @@ export default function SaldoConsolidadoPage() {
         {error && <InfoBox tipo="error">{error}</InfoBox>}
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando saldo…</p>
+          <SkeletonTable rows={6} columns={6} />
         ) : visibles.length === 0 ? (
           <EmptyState
             titulo="Sin existencias para mostrar"
@@ -90,14 +91,14 @@ export default function SaldoConsolidadoPage() {
           />
         ) : (
           <>
-            <Table>
+            <Table className="table-fixed w-full">
               <THead>
-                <TH>Código</TH>
-                <TH>Artículo</TH>
-                <TH>Depósito</TH>
-                <TH className="text-right">Existencia</TH>
-                <TH className="text-right">Mínimo</TH>
-                <TH>Estado</TH>
+                <TH style={{ width: '15%' }}>Código</TH>
+                <TH style={{ width: '30%' }}>Artículo</TH>
+                <TH style={{ width: '20%' }}>Depósito</TH>
+                <TH className="text-right" style={{ width: '15%' }}>Existencia</TH>
+                <TH className="text-right" style={{ width: '10%' }}>Mínimo</TH>
+                <TH style={{ width: '10%' }}>Estado</TH>
               </THead>
               <TBody>
                 {filasPaginadas.map((f) => {

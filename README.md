@@ -104,6 +104,40 @@ Para cargar datos de ejemplo del módulo Reportes/Egresos (idempotente,
 no duplica nada): `node scripts/seed-egresos.js` desde `backend/`.
 Con `--limpiar` borra solo los ejemplos.
 
+Para cargar un recorrido completo del hotel (habitaciones, huéspedes,
+reservas en todos los estados, cobros, consumos y housekeeping) usá
+`database/24_datos_ejemplo.sql`. Es idempotente y no borra datos existentes:
+
+```powershell
+psql -v ON_ERROR_STOP=1 -U postgres -d sistema_hotelero_db `
+     -f database/24_datos_ejemplo.sql
+```
+
+El detalle de los casos cargados está en `docs/DATOS-EJEMPLO.md`.
+
+Para una demo completa, con datos en todos los gráficos y reportes (ingresos,
+egresos, temporadas, ventas por canal y ocupación), hay además una semilla
+masiva en JavaScript. Se ejecuta desde `backend/`:
+
+```powershell
+node scripts/seed-demo-masivo.js            # carga completa
+node scripts/seed-demo-masivo.js --estado   # resumen de lo cargado
+```
+
+Es aditiva e idempotente: al terminar graba el parámetro `DEMO_MASIVO_VERSION`
+y no vuelve a cargar si ya existe. Suma habitaciones y tipos con numeración
+realista, tarifas por temporada, huéspedes, reservas históricas y futuras,
+cobros, consumos, housekeeping, inventario, proveedores, comprobantes, gastos,
+órdenes de pago y cuenta corriente. Las reservas futuras se pueden regenerar
+por separado:
+
+```powershell
+node scripts/seed-demo-masivo.js --reset-futuras
+node scripts/seed-demo-masivo.js --futuras
+```
+
+El detalle y las cifras están en `docs/DATOS-EJEMPLO.md`.
+
 ### 2. Backend
 
 ```powershell

@@ -2,7 +2,7 @@
  * Cliente HTTP único del frontend.
  */
 
-import type { Reserva, ReservaDetalle, TipoHabitacion } from "./types";
+import type { Reserva, ReservaDetalle, TipoHabitacion, Huesped } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -247,4 +247,12 @@ export function getReporteOcupacionTemporadas(params?: {
 
   const q = query.toString() ? `?${query.toString()}` : '';
   return api.get<ReporteOcupacionTemporadas>(`/reportes/ocupacion-temporadas${q}`);
+}
+
+/* ---------------------------------------------------------------------------
+ * Huéspedes (RES-01)
+ * ------------------------------------------------------------------------- */
+
+export function getHuespedes() {
+  return api.get<Huesped[]>(`/reservas/clientes`);
 }

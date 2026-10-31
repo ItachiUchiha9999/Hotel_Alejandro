@@ -12,6 +12,7 @@ import {
   Input,
   Select,
 } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 
 import { HabitacionesTabla } from "@/components/habitaciones/inventario/HabitacionesTable";
 
@@ -343,9 +344,7 @@ export default function HabitacionesPage() {
           }
         >
           {cargando ? (
-            <p className="py-10 text-center text-sm text-carbon/50">
-              Cargando inventario…
-            </p>
+            <SkeletonTable rows={6} columns={7} />
           ) : visibles.length === 0 ? (
             <EmptyState
               titulo={

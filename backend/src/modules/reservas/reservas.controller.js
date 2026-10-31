@@ -1,5 +1,6 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const service = require('./reservas.service');
+const { invalido, noEncontrado } = require('../../utils/AppError');
 
 const actor = (req, body = {}) =>
   req.user?.employees_id ?? req.get('x-employee-id') ?? body.usuarioRecepcionId ?? body.employee_id ?? body.employeeId;
@@ -40,6 +41,22 @@ const catalogos = asyncHandler(async (_req, res) => {
 const clientes = asyncHandler(async (_req, res) => {
   const data = await service.listarHuespedes();
   res.json({ ok: true, data });
+});
+
+const obtenerCliente = asyncHandler(async (req, res) => {
+  const guestId = Number(req.params.id);
+  if (!Number.isInteger(guestId) || guestId <= 0) throw invalido('El ID del huésped no es válido.');
+  const data = await service.obtenerHuesped(guestId);
+  if (!data) throw noEncontrado('El huésped no existe.');
+  res.json({ ok: true, data });
+});
+
+const modificarCliente = asyncHandler(async (req, res) => {
+  const guestId = Number(req.params.id);
+  if (!Number.isInteger(guestId) || guestId <= 0) throw invalido('El ID del huésped no es válido.');
+  const datos = req.body;
+  const data = await service.modificarHuesped(guestId, datos);
+  res.json({ ok: true, message: 'Huésped actualizado correctamente.', data });
 });
 
 const habitaciones = asyncHandler(async (_req, res) => {
@@ -127,6 +144,6 @@ const barrerNoShows = asyncHandler(async (_req, res) => {
 });
 
 module.exports = {
-  crear, modificar, cancelar, catalogos, clientes, habitaciones, crearHold, liberarHold,
+  crear, modificar, cancelar, catalogos, clientes, obtenerCliente, modificarCliente, habitaciones, crearHold, liberarHold,
   listar, obtener, confirmar, checkIn, checkOut, pagosAlojamiento, estadoCuenta, registrarPagoAlojamiento, barrerNoShows,
 };

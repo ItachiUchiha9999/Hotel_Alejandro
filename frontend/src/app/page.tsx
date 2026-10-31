@@ -1,104 +1,337 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Download, BedDouble, Calendar, ArrowRight, DollarSign, Percent } from "lucide-react";
+import { Download, BedDouble, Calendar, ArrowRight, DollarSign, Percent, TrendingUp, AlertTriangle, Users, Building2, CreditCard, CheckCircle, PieChart, BarChart2, Activity } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, InfoBox, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, Table, TableContainer, TableHeader, TableBody, TableRow, TableHead, TableCell, InfoBox } from "@/components/ui";
 import { api, authHeaders, urlDescarga, getReporteOcupacionTemporadas, type ReporteOcupacionTemporadas } from "@/lib/api";
 import type { FilaSaldo, Movimiento } from "@/lib/types";
+import { EmptyStates, CardSkeleton, TableSkeleton } from "@/components/ui";
+import { useToast } from "@/components/ui/Toast";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
 type PeriodoFinanciero = "SEMANA" | "MES" | "ANIO";
 interface PuntoFinanciero { pendiente?: boolean; fecha: string; ingresos: number; egresos: number; neto: number; margen_porcentual: number | null; }
 interface MovimientoFinanciero { fecha: string; tipo: "INGRESO" | "EGRESO"; detalle: string; importe: number; }
-interface ReporteFinanciero { periodo: PeriodoFinanciero; desde: string; hasta: string; serie: PuntoFinanciero[]; totales: { ingresos: number; egresos: number; neto: number; margen_porcentual: number | null }; comparacion: { desde: string; hasta: string; totales: { ingresos: number; egresos: number; neto: number; margen_porcentual: number | null } }; movimientos: MovimientoFinanciero[]; }
+interface ReporteFinanciero {
+  periodo: PeriodoFinanciero;
+  desde: string;
+  hasta: string;
+  serie: PuntoFinanciero[];
+  totales: { ingresos: number; egresos: number; neto: number; margen_porcentual: number | null };
+  comparacion: { desde: string; hasta: string; totales: { ingresos: number; egresos: number; neto: number; margen_porcentual: number | null } };
+  movimientos: MovimientoFinanciero[];
+}
 
 const fechaLocalHoy = () => {
   const hoy = new Date();
   hoy.setMinutes(hoy.getMinutes() - hoy.getTimezoneOffset());
   return hoy.toISOString().slice(0, 10);
 };
+
 const moneda = (valor: number) => valor.toLocaleString("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const monedaCompacta = (valor: number) => new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 }).format(valor);
 const variacionTexto = (actual: number, anterior: number) => anterior === 0 ? (actual === 0 ? "Sin cambios respecto al período anterior" : "Nuevo en este período") : `${actual - anterior >= 0 ? "+" : ""}${(((actual - anterior) / anterior) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}% vs. período anterior`;
 const fechaCorta = (valor: string) => new Date(`${valor}T12:00:00`).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
 
-function GraficoFinanciero({ puntos, anual = false }: { puntos: PuntoFinanciero[]; anual?: boolean }) {
-  const [fechaSeleccionada, setFechaSeleccionada] = useState<string | null>(null);
-  const hayMovimientos = puntos.some(p => p.ingresos !== 0 || p.egresos !== 0);
-  if (!hayMovimientos && !anual) return <p className="rounded-lg bg-bone/45 px-5 py-10 text-center text-sm text-[#514d46]">No hay cobros ni pagos registrados en este período.</p>;
-
-  const ancho = Math.max(900, puntos.length * 64 + 104);
-  const alto = 380;
-  const izquierda = 76;
-  const derecha = 20;
-  const arriba = 24;
-  const abajo = 48;
-  const valores = puntos.flatMap(p => [p.ingresos, p.egresos, p.neto]);
-  const mayorValor = Math.max(...valores, 0);
-  const menorValor = Math.min(...valores, 0);
-  // Escala compartida: las barras parten de cero y la línea puede bajar de él.
-  const amplitud = Math.max(mayorValor, Math.abs(menorValor), 1);
-  const potencia = 10 ** Math.floor(Math.log10(amplitud / 3));
-  const paso = Math.ceil(amplitud / 3 / potencia) * potencia;
-  const maximo = Math.max(paso, Math.ceil(mayorValor / paso) * paso);
-  const minimo = Math.floor(menorValor / paso) * paso;
-  const ticks = Array.from({ length: Math.round((maximo - minimo) / paso) + 1 }, (_, i) => minimo + i * paso);
-  const espacio = (ancho - izquierda - derecha) / puntos.length;
-  const anchoBarra = Math.min(espacio * 0.40, 42);
-  const x = (i: number) => izquierda + espacio * (i + 0.5);
-  const y = (valor: number) => arriba + (maximo - valor) / (maximo - minimo) * (alto - arriba - abajo);
-  const cero = y(0);
-  const linea = puntos.map((p, i) => p.pendiente ? "" : `${i === 0 || puntos[i - 1].pendiente ? "M" : "L"} ${x(i)} ${y(p.neto)}`).join(" ");
-  const indiceInicial = puntos.reduce((ultimo, p, i) => p.ingresos !== 0 || p.egresos !== 0 ? i : ultimo, 0);
-  const indiceBuscado = puntos.findIndex(p => p.fecha === fechaSeleccionada);
-  const indiceSeleccionado = indiceBuscado >= 0 ? indiceBuscado : indiceInicial;
-  const seleccionado = puntos[indiceSeleccionado];
-  const fechaCompleta = new Date(`${seleccionado.fecha}T12:00:00`).toLocaleDateString("es-AR", anual ? { month: "long", year: "numeric" } : { day: "numeric", month: "long" });
-  const estado = seleccionado.pendiente ? "Mes pendiente" : seleccionado.neto < 0 ? "Resultado negativo" : seleccionado.neto > 0 ? "Resultado positivo" : "Sin diferencia";
-
-  return <div>
-    <p className="mb-3 text-xs leading-5 text-[#514d46]">Compará ingresos y egresos de cada {anual ? "mes" : "día"}. La línea amarilla muestra el resultado. Deslizá para recorrer el período y seleccioná {anual ? "un mes" : "un día"} para ver el detalle.</p>
-    <div className="overflow-x-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold" role="region" aria-label={anual ? "Comparativa financiera anual por mes" : "Comparativa financiera diaria; desplazate horizontalmente para ver todos los días"} tabIndex={0}>
-      <svg viewBox={`0 0 ${ancho} ${alto}`} className="w-full" style={{ minWidth: ancho }} role="group" aria-label={`Barras de ingresos y egresos y línea del resultado neto por ${anual ? "mes" : "día"}`}>
-        {ticks.map(tick => <g key={tick}>
-          <line x1={izquierda} x2={ancho - derecha} y1={y(tick)} y2={y(tick)} stroke={tick === 0 ? "#8c8172" : "#e8e0d4"} strokeWidth={tick === 0 ? 1.5 : 1} opacity={tick === 0 ? 1 : 0.55} />
-          <text x={izquierda - 12} y={y(tick) + 4} textAnchor="end" fontSize="12" fill="#514d46">{tick < 0 ? "−" : ""}${monedaCompacta(Math.abs(tick))}</text>
-        </g>)}
-        <rect x={izquierda + espacio * indiceSeleccionado} y={arriba} width={espacio} height={alto - arriba - abajo} fill="#f2f3f1" opacity="0.8" pointerEvents="none" />
-        {puntos.map((p, i) => <g key={`barras-${p.fecha}`}>
-          {p.pendiente && <rect x={izquierda + espacio * i} y={arriba} width={espacio} height={alto - arriba - abajo} fill="#faf9f6" />}
-          {p.ingresos !== 0 && <rect x={x(i) - anchoBarra - 2} y={Math.min(cero, y(p.ingresos))} width={anchoBarra} height={Math.abs(cero - y(p.ingresos))} rx="1" fill="#008580" />}
-          {p.egresos !== 0 && <rect x={x(i) + 2} y={Math.min(cero, y(p.egresos))} width={anchoBarra} height={Math.abs(cero - y(p.egresos))} rx="1" fill="#d63f3f" />}
-          <text x={x(i)} y={alto - 16} textAnchor="middle" fontSize="13" fill="#514d46">{anual ? new Date(`${p.fecha}T12:00:00`).toLocaleDateString("es-AR", { month: "short" }).replace(".", "").toUpperCase() : p.fecha.slice(-2)}</text>
-          {p.pendiente && <text x={x(i)} y={alto - 2} textAnchor="middle" fontSize="10" fill="#756f67">Pendiente</text>}
-        </g>)}
-        <path d={linea} fill="none" stroke="#e8b943" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
-        {puntos.map((p, i) => <g key={p.fecha}>
-          {i === indiceSeleccionado && !p.pendiente && <circle cx={x(i)} cy={y(p.neto)} r={i === indiceSeleccionado ? 4.5 : 3} fill={p.neto < 0 ? "#b3453c" : "#b1851a"} stroke="white" strokeWidth="1.5" pointerEvents="none" />}
-          <rect x={izquierda + espacio * i} y={arriba} width={espacio} height={alto - arriba - abajo} fill="transparent" role="button" tabIndex={0}
-            aria-label={p.pendiente ? `${p.fecha.slice(0, 7)}: mes pendiente` : `${fechaCorta(p.fecha)}: ingresos ${moneda(p.ingresos)}, egresos ${moneda(p.egresos)}, resultado ${moneda(p.neto)}. Ver detalle.`}
-            aria-pressed={i === indiceSeleccionado}
-            className="cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-gold"
-            onMouseEnter={() => setFechaSeleccionada(p.fecha)} onFocus={() => setFechaSeleccionada(p.fecha)} onClick={() => setFechaSeleccionada(p.fecha)}
-            onKeyDown={evento => {
-              if (evento.key === "Enter" || evento.key === " ") { evento.preventDefault(); setFechaSeleccionada(p.fecha); }
-            }}>
-            <title>{`${fechaCorta(p.fecha)} · Ingresos: ${moneda(p.ingresos)} · Egresos: ${moneda(p.egresos)} · Resultado: ${moneda(p.neto)}`}</title>
-          </rect>
-        </g>)}
-      </svg>
-    </div>
-    <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg bg-bone/45 px-4 py-3 text-sm sm:grid-cols-4" aria-label={anual ? "Detalle del mes seleccionado" : "Detalle del día seleccionado"}>
-      <div><p className="text-xs text-[#514d46]">{anual ? "Mes seleccionado" : "Día seleccionado"}</p><p className="mt-1 font-medium text-carbon">{fechaCompleta}</p></div>
-      <div><p className="text-xs text-[#514d46]">Ingresos cobrados</p><p className="mt-1 font-semibold tabular-nums text-[#2d654f]">{seleccionado.pendiente ? "—" : moneda(seleccionado.ingresos)}</p></div>
-      <div><p className="text-xs text-[#514d46]">Egresos pagados</p><p className="mt-1 font-semibold tabular-nums text-[#934c3b]">{seleccionado.pendiente ? "—" : moneda(seleccionado.egresos)}</p></div>
-      <div><p className="text-xs text-[#514d46]">{estado}</p><p className={`mt-1 font-semibold tabular-nums ${seleccionado.neto < 0 ? "text-red-700" : seleccionado.neto > 0 ? "text-[#2d654f]" : "text-carbon"}`}>{seleccionado.pendiente ? "—" : moneda(seleccionado.neto)}</p></div>
-    </div>
-  </div>;
+// Metric Card Component
+function MetricCard({
+  icon,
+  title,
+  value,
+  subtitle,
+  trend,
+  trendPositive = true,
+  loading = false,
+  iconBg = "bg-gold-100",
+  iconColor = "text-gold-600"
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  trend?: string;
+  trendPositive?: boolean;
+  loading?: boolean;
+  iconBg?: string;
+  iconColor?: string;
+}) {
+  return (
+    <Card variant="outlined" padding="md" hover>
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">{title}</p>
+          <p className="mt-1 text-2xl font-bold text-neutral-900 tabular-nums">{loading ? "—" : value}</p>
+          {subtitle && <p className="mt-1 text-xs text-neutral-500">{subtitle}</p>}
+          {trend && (
+            <p className="mt-1 text-xs font-medium" style={{ color: trendPositive ? '#1a9c33' : '#ef4444' }}>
+              {trend}
+            </p>
+          )}
+        </div>
+        <div className={cn("p-3 rounded-xl flex-shrink-0", iconBg)}>
+          {icon}
+        </div>
+      </div>
+    </Card>
+  );
 }
 
+// Donut chart for income/expense distribution
+function DonutFinanciero({ reporte }: { reporte: ReporteFinanciero }) {
+  const [animar, setAnimar] = useState(false);
+  useEffect(() => { setAnimar(false); requestAnimationFrame(() => setAnimar(true)); }, [reporte.totales.ingresos, reporte.totales.egresos]);
+
+  const radio = 70;
+  const grosor = 16;
+  const circunferencia = 2 * Math.PI * radio;
+  const total = (reporte.totales.ingresos || 0) + (reporte.totales.egresos || 0);
+  const porcIngresos = total > 0 ? (reporte.totales.ingresos || 0) / total : 0.5;
+  const porcEgresos = total > 0 ? (reporte.totales.egresos || 0) / total : 0.5;
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[180px]">
+      <svg viewBox={`0 0 ${radio * 2} ${radio * 2}`} width="160" height="160" role="img" aria-label="Distribución ingresos vs egresos">
+        {/* Background circle */}
+        <circle cx={radio} cy={radio} r={radio - grosor / 2} fill="none" stroke="#e8e0d4" strokeWidth={grosor} />
+        {/* Ingresos */}
+        <circle
+          cx={radio} cy={radio} r={radio - grosor / 2}
+          fill="none" stroke="#1a9c33"
+          strokeWidth={grosor}
+          strokeDasharray={`${porcIngresos * circunferencia} ${circunferencia}`}
+          strokeDashoffset={animar ? 0 : circunferencia}
+          strokeLinecap="round"
+          className="animate-scale-in stagger-1"
+          style={{
+            transformOrigin: `${radio}px ${radio}px`,
+            transition: "stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
+        >
+          <title>Ingresos: {moneda(reporte.totales.ingresos || 0)} ({(porcIngresos * 100).toFixed(1)}%)</title>
+        </circle>
+        {/* Egresos */}
+        <circle
+          cx={radio} cy={radio} r={radio - grosor / 2}
+          fill="none" stroke="#ef4444"
+          strokeWidth={grosor}
+          strokeDasharray={`${porcEgresos * circunferencia} ${circunferencia}`}
+          strokeDashoffset={animar ? -porcIngresos * circunferencia : circunferencia}
+          strokeLinecap="round"
+          className="animate-scale-in stagger-2"
+          style={{
+            transformOrigin: `${radio}px ${radio}px`,
+            transition: "stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1)",
+            transitionDelay: "200ms",
+          }}
+        >
+          <title>Egresos: {moneda(reporte.totales.egresos || 0)} ({(porcEgresos * 100).toFixed(1)}%)</title>
+        </circle>
+        {total === 0 && (
+          <circle cx={radio} cy={radio} r={radio - grosor / 2} fill="none" stroke="#e8e0d4" strokeWidth={grosor} />
+        )}
+      </svg>
+      <div className="mt-4 text-center space-y-1">
+        <p className="text-sm font-medium text-neutral-900">{total > 0 ? `${porcIngresos < porcEgresos ? "−" : ""}${(porcIngresos - porcEgresos) * 100 > 0 ? "+" : ""}${(Math.abs(porcIngresos - porcEgresos) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "Sin datos"}</p>
+        <p className="text-xs text-neutral-500">Diferencia ingresos/egresos</p>
+      </div>
+    </div>
+  );
+}
+
+// Line chart for financial trend
+function LineaTendenciaFinanciera({ reporte }: { reporte: ReporteFinanciero }) {
+  const [animar, setAnimar] = useState(false);
+  useEffect(() => { setAnimar(false); requestAnimationFrame(() => setAnimar(true)); }, [reporte.serie.length, reporte.periodo]);
+
+  const ancho = Math.max(600, reporte.serie.length * 45 + 80);
+  const alto = 220;
+  const x0 = 55;
+  const x1 = ancho - 25;
+  const y0 = 180;
+  const altura = 150;
+  const maximo = Math.max(1, ...reporte.serie.flatMap(p => [p.ingresos, p.egresos, Math.abs(p.neto)]));
+  const x = (i: number) => reporte.serie.length <= 1 ? (x0 + x1) / 2 : x0 + i / (reporte.serie.length - 1) * (x1 - x0);
+  const y = (valor: number) => y0 - (valor / maximo) * altura;
+  const trazado = (tipo: "ingresos" | "egresos" | "neto") => reporte.serie.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p[tipo] || 0)}`).join(" ");
+  const compacto = (valor: number) => new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 }).format(valor);
+  const etiqueta = (valor: string) => reporte.periodo === "ANIO" ? new Date(`${valor}T12:00:00Z`).toLocaleDateString("es-AR", { month: "short", year: "2-digit", timeZone: "UTC" }) : `${valor.slice(8, 10)}`;
+
+  return (
+    <div className="overflow-x-auto pb-2">
+      <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-700" aria-label="Series">
+        <span className="inline-flex items-center gap-2 animate-slide-in stagger-1"><span className="h-1 w-5 rounded bg-success-500" />Ingresos</span>
+        <span className="inline-flex items-center gap-2 animate-slide-in stagger-2"><span className="h-1 w-5 rounded bg-danger-500" />Egresos</span>
+        <span className="inline-flex items-center gap-2 animate-slide-in stagger-3"><span className="h-1 w-5 rounded bg-gold-400" />Resultado</span>
+      </div>
+      <svg width={ancho} viewBox={`0 0 ${ancho} ${alto}`} className="max-w-none" role="img" aria-label="Tendencia financiera: ingresos, egresos y resultado por período">
+        <title>Evolución de ingresos, egresos y resultado neto</title>
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map(fraccion => (
+          <g key={fraccion} className="animate-fade-in stagger-1">
+            <line x1={x0} x2={x1} y1={y(maximo * fraccion)} y2={y(maximo * fraccion)} stroke="#e8e0d4" strokeDasharray="4 5" />
+            <text x={x0 - 8} y={y(maximo * fraccion) + 4} textAnchor="end" fontSize="10" fill="#756f67">{compacto(maximo * fraccion)}</text>
+          </g>
+        ))}
+        {/* Zero line */}
+        <line x1={x0} x2={x1} y1={y(0)} y2={y(0)} stroke="#d4c8b8" strokeWidth={1.5} className="animate-fade-in stagger-1" />
+        {/* Ingresos line */}
+        <path d={trazado("ingresos")} fill="none" stroke="#1a9c33" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" className="stagger-2 animate-fade-in" style={{ opacity: animar ? 1 : 0, transition: "opacity 1s cubic-bezier(0.4, 0, 0.2, 1)" }} />
+        {/* Egresos line */}
+        <path d={trazado("egresos")} fill="none" stroke="#ef4444" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" className="stagger-3 animate-fade-in" style={{ opacity: animar ? 1 : 0, transition: "opacity 1s cubic-bezier(0.4, 0, 0.2, 1)", transitionDelay: "150ms" }} />
+        {/* Neto line */}
+        <path d={trazado("neto")} fill="none" stroke="#b08d48" strokeWidth={3} strokeDasharray="6 4" strokeLinejoin="round" strokeLinecap="round" className="stagger-4 animate-fade-in" style={{ opacity: animar ? 1 : 0, transition: "opacity 1s cubic-bezier(0.4, 0, 0.2, 1)", transitionDelay: "300ms" }} />
+        {/* Points */}
+        {reporte.serie.map((p, i) => (
+          <g key={p.fecha} className="animate-fade-in stagger-5" style={{ animationDelay: `${(i % 10) * 60}ms` }}>
+            {p.ingresos && <circle cx={x(i)} cy={y(p.ingresos)} r={4} fill="#1a9c33" stroke="white" strokeWidth={2}><title>Ingresos: {moneda(p.ingresos)}</title></circle>}
+            {p.egresos && <circle cx={x(i)} cy={y(p.egresos)} r={4} fill="#ef4444" stroke="white" strokeWidth={2}><title>Egresos: {moneda(p.egresos)}</title></circle>}
+            <circle cx={x(i)} cy={y(p.neto)} r={4} fill="#b08d48" stroke="white" strokeWidth={2}><title>Resultado: {moneda(p.neto)}</title></circle>
+            <text x={x(i)} y={y0 + 22} textAnchor="middle" fontSize={10} fill="#756f67">{etiqueta(p.fecha)}</text>
+          </g>
+        ))}
+      </svg>
+      <p className="mt-2 text-right text-xs text-neutral-55">Escala vertical: pesos argentinos</p>
+    </div>
+  );
+}
+
+// Financial Chart using simple bars with entrance animations
+function FinancialChart({ points, selectedDate, onSelectDate, period }: {
+  points: PuntoFinanciero[];
+  selectedDate: string | null;
+  onSelectDate: (date: string) => void;
+  period: PeriodoFinanciero;
+}) {
+  const [animar, setAnimar] = useState(false);
+  useEffect(() => { setAnimar(false); requestAnimationFrame(() => setAnimar(true)); }, [points.length, period]);
+
+  const hasData = points.some(p => p.ingresos !== 0 || p.egresos !== 0);
+  if (!hasData && period !== "ANIO") {
+    return (
+      <Card variant="outlined" padding="md" className="min-h-[300px] flex items-center justify-center">
+        <p className="text-center text-sm text-neutral-500">No hay cobros ni pagos registrados en este período.</p>
+      </Card>
+    );
+  }
+
+  const selected = points.find(p => p.fecha === selectedDate) || points.find(p => p.ingresos !== 0 || p.egresos !== 0) || points[0];
+  const maxVal = Math.max(...points.flatMap(p => [p.ingresos, p.egresos, Math.abs(p.neto), 1]));
+  const minVal = Math.min(...points.flatMap(p => [p.ingresos, p.egresos, p.neto, 0]));
+  const range = maxVal - minVal || 1;
+
+  return (
+    <Card variant="outlined" padding="md" className="animate-slide-up-slow">
+      <div className="mb-4">
+        <p className="text-xs text-neutral-500 mb-3 animate-fade-in stagger-1">
+          Compará ingresos y egresos de cada {period === "ANIO" ? "mes" : "día"}.
+          Seleccioná {period === "ANIO" ? "un mes" : "un día"} para ver el detalle.
+        </p>
+
+        {/* Chart */}
+        <div className="overflow-x-auto" role="img" aria-label={period === "ANIO" ? "Comparativa financiera anual por mes" : "Comparativa financiera diaria"}>
+          <div className="flex items-end gap-1 h-64 min-w-max pb-2" style={{ minWidth: Math.max(600, points.length * 50) }}>
+            {points.map((p, i) => {
+              const ingresoHeight = p.ingresos ? Math.max(4, (p.ingresos / maxVal) * 200) : 0;
+              const egresoHeight = p.egresos ? Math.max(4, (p.egresos / maxVal) * 200) : 0;
+              const isSelected = p.fecha === selectedDate;
+              const delay = (i % 10) * 50;
+
+              return (
+                <div
+                  key={p.fecha}
+                  className="flex flex-col items-center gap-1 flex-1 min-w-[40px] cursor-pointer transition-all animate-slide-up-slow"
+                  style={{ animationDelay: `${delay}ms`, opacity: p.pendiente ? 0.5 : 1 }}
+                  onClick={() => onSelectDate(p.fecha)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectDate(p.fecha); }}}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`${fechaCorta(p.fecha)}: Ingresos ${moneda(p.ingresos)}, Egresos ${moneda(p.egresos)}, Resultado ${moneda(p.neto)}`}
+                  aria-pressed={isSelected}
+                >
+                  <div className="flex flex-col items-center gap-1 flex-1 relative" style={{ height: 200 }}>
+                    {p.ingresos > 0 && (
+                      <div
+                        className="w-full bg-success-500 rounded-t transition-all hover:bg-success-600 animate-scale-in"
+                        style={{
+                          height: animar ? ingresoHeight : 0,
+                          transformOrigin: "bottom center",
+                          transition: "height 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                          transitionDelay: `${delay}ms`,
+                        }}
+                        title={`Ingresos: ${moneda(p.ingresos)}`}
+                      />
+                    )}
+                    {p.egresos > 0 && (
+                      <div
+                        className="w-full bg-danger-500 rounded-t transition-all hover:bg-danger-600 animate-scale-in"
+                        style={{
+                          height: animar ? egresoHeight : 0,
+                          transformOrigin: "bottom center",
+                          transition: "height 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                          transitionDelay: `${delay + 80}ms`,
+                        }}
+                        title={`Egresos: ${moneda(p.egresos)}`}
+                      />
+                    )}
+                    {/* Net line indicator */}
+                    <div
+                      className="absolute left-0 right-0 h-0.5 bg-gold-400 animate-fade-in"
+                      style={{
+                        bottom: ((p.neto - minVal) / range) * 200,
+                        opacity: animar ? 1 : 0,
+                        transition: `opacity 0.4s ease ${delay + 120}ms`,
+                      }}
+                    />
+                  </div>
+                  <span className={cn("text-xs font-medium", isSelected ? "text-gold-600" : "text-neutral-500")} style={{ opacity: animar ? 1 : 0, transition: `opacity 0.3s ease ${delay + 200}ms` }}>
+                    {period === "ANIO"
+                      ? format(new Date(`${p.fecha}T12:00:00`), "MMM", { locale: es }).toUpperCase()
+                      : p.fecha.slice(-2)}
+                  </span>
+                  {p.pendiente && <span className="text-[10px] text-neutral-400">Pendiente</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Selected day detail */}
+          <div className="mt-4 grid grid-cols-4 gap-4 animate-fade-in stagger-5">
+            <div className="rounded-lg bg-neutral-50 p-3">
+              <p className="text-xs text-neutral-500">{period === "ANIO" ? "Mes seleccionado" : "Día seleccionado"}</p>
+              <p className="font-medium text-neutral-900">
+                {period === "ANIO"
+                  ? format(new Date(`${selected?.fecha}T12:00:00`), "MMMM yyyy", { locale: es })
+                  : format(new Date(`${selected?.fecha}T12:00:00`), "dd MMMM", { locale: es })}
+              </p>
+            </div>
+            <div className="rounded-lg bg-success-50 p-3">
+              <p className="text-xs text-success-700">Ingresos cobrados</p>
+              <p className="font-bold text-success-700">{selected?.pendiente ? "—" : moneda(selected?.ingresos ?? 0)}</p>
+            </div>
+            <div className="rounded-lg bg-danger-50 p-3">
+              <p className="text-xs text-danger-700">Egresos pagados</p>
+              <p className="font-bold text-danger-700">{selected?.pendiente ? "—" : moneda(selected?.egresos ?? 0)}</p>
+            </div>
+            <div className={cn("rounded-lg p-3", (selected?.neto ?? 0) < 0 ? "bg-danger-50" : "bg-gold-50")}>
+              <p className="text-xs text-neutral-500">Resultado del período</p>
+              <p className={cn("font-bold", (selected?.neto ?? 0) < 0 ? "text-danger-700" : "text-neutral-900")}>
+                {selected?.pendiente ? "—" : moneda(selected?.neto ?? 0)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+import { cn } from "@/lib/utils";
+
 export default function InicioPage() {
+  const { toast } = useToast();
   const [saldo, setSaldo] = useState<FilaSaldo[]>([]);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [sinBackend, setSinBackend] = useState(false);
@@ -110,11 +343,13 @@ export default function InicioPage() {
   const [errorReporte, setErrorReporte] = useState(false);
   const [exportando, setExportando] = useState<"pdf" | "xlsx" | null>(null);
   const [errorExportacion, setErrorExportacion] = useState<string | null>(null);
+  const [fechaSeleccionadaGrafico, setFechaSeleccionadaGrafico] = useState<string | null>(null);
 
   // REP-08: Estado del panel de ocupación y tarifas estacionales
   const [reporteOcupacion, setReporteOcupacion] = useState<ReporteOcupacionTemporadas | null>(null);
   const [cargandoOcupacion, setCargandoOcupacion] = useState(true);
 
+  // Cargar datos operativos (stock)
   useEffect(() => {
     (async () => {
       try {
@@ -132,11 +367,12 @@ export default function InicioPage() {
     })();
   }, []);
 
+  // Cargar reporte financiero
   useEffect(() => {
     let vigente = true;
     setCargandoReporte(true); setErrorReporte(false); setReporte(null);
     api.get<ReporteFinanciero>(`/dashboard/finanzas?periodo=${periodo}&fecha=${fechaFinanzas}`)
-      .then((data) => { if (vigente) setReporte(data); })
+      .then((data) => { if (vigente) { setReporte(data); setFechaSeleccionadaGrafico(data.serie[0]?.fecha || null); } })
       .catch(() => { if (vigente) setErrorReporte(true); })
       .finally(() => { if (vigente) setCargandoReporte(false); });
     return () => { vigente = false; };
@@ -174,12 +410,56 @@ export default function InicioPage() {
       enlace.click();
       enlace.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast({ type: "success", title: "Exportación completada", message: `Reporte descargado en formato ${formato.toUpperCase()}` });
     } catch (err) {
-      setErrorExportacion(err instanceof Error ? err.message : "No se pudo descargar el reporte.");
+      const msg = err instanceof Error ? err.message : "No se pudo descargar el reporte.";
+      setErrorExportacion(msg);
+      toast({ type: "error", title: "Error al exportar", message: msg });
     } finally {
       setExportando(null);
     }
   }
+
+  const kpis = [
+    {
+      icon: <DollarSign className="w-5 h-5" />,
+      title: "Ingresos registrados",
+      value: moneda(reporte?.totales.ingresos ?? 0),
+      trend: variacionTexto(reporte?.totales.ingresos ?? 0, reporte?.comparacion.totales.ingresos ?? 0),
+      trendPositive: (reporte?.totales.ingresos ?? 0) >= (reporte?.comparacion.totales.ingresos ?? 0),
+      loading: cargandoReporte,
+      iconBg: "bg-success-100",
+      iconColor: "text-success-600"
+    },
+    {
+      icon: <CreditCard className="w-5 h-5" />,
+      title: "Egresos pagados",
+      value: moneda(reporte?.totales.egresos ?? 0),
+      trend: variacionTexto(reporte?.totales.egresos ?? 0, reporte?.comparacion.totales.egresos ?? 0),
+      trendPositive: (reporte?.totales.egresos ?? 0) <= (reporte?.comparacion.totales.egresos ?? 0),
+      loading: cargandoReporte,
+      iconBg: "bg-danger-100",
+      iconColor: "text-danger-600"
+    },
+    {
+      icon: <TrendingUp className="w-5 h-5" />,
+      title: "Resultado del período",
+      value: moneda(reporte?.totales.neto ?? 0),
+      trend: reporte ? `Margen: ${reporte.totales.margen_porcentual?.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%` : undefined,
+      trendPositive: (reporte?.totales.neto ?? 0) >= 0,
+      loading: cargandoReporte,
+      iconBg: (reporte?.totales.neto ?? 0) < 0 ? "bg-danger-100" : "bg-gold-100",
+      iconColor: (reporte?.totales.neto ?? 0) < 0 ? "text-danger-600" : "text-gold-600"
+    },
+    {
+      icon: <Percent className="w-5 h-5" />,
+      title: "Margen porcentual",
+      value: reporte?.totales.margen_porcentual === null ? "Sin ingresos" : `${reporte?.totales.margen_porcentual?.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`,
+      loading: cargandoReporte,
+      iconBg: "bg-info-100",
+      iconColor: "text-info-600"
+    },
+  ];
 
   return (
     <>
@@ -187,174 +467,381 @@ export default function InicioPage() {
         eyebrow="SIGH · Sistema de Gestión Hotelera"
         titulo="Hotel Alejandro I"
         descripcion="Resumen financiero, operativo y rendimiento de reservas por temporada."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variante="secundario"
+              disabled={!reporte || cargandoReporte || exportando !== null}
+              cargando={exportando === "pdf"}
+              onClick={() => exportarFinanzas("pdf")}
+              leftIcon={<Download className="w-4 h-4" />}
+            >
+              PDF
+            </Button>
+            <Button
+              variante="secundario"
+              disabled={!reporte || cargandoReporte || exportando !== null}
+              cargando={exportando === "xlsx"}
+              onClick={() => exportarFinanzas("xlsx")}
+              leftIcon={<Download className="w-4 h-4" />}
+            >
+              Excel
+            </Button>
+          </div>
+        }
       />
 
-      <Card className="mb-6" titulo="Alertas de stock" descripcion={cargandoOperativo ? "Consultando niveles de inventario…" : sinBackend ? "No se pudo verificar el inventario." : bajoMinimo.length > 0 ? `${bajoMinimo.length} artículo(s) necesitan reposición.` : "No hay artículos por debajo del mínimo configurado."}>
-        {cargandoOperativo ? <p className="py-3 text-sm text-carbon/55">Consultando stock…</p> : sinBackend ? <p className="py-3 text-sm text-red-700">No se pudo verificar el inventario. Revisá la conexión con el servidor.</p> : bajoMinimo.length === 0 ? <p className="py-3 text-sm text-carbon/55">Todo en orden.</p> : <Table><THead><TH>Artículo</TH><TH>Depósito</TH><TH className="text-right">Actual / mínimo</TH></THead><TBody>{bajoMinimo.slice(0, 5).map((f) => <TR key={f.stock_id}><TD className="font-medium">{f.articles.article_name}</TD><TD className="text-xs">{f.deposit.deposit_name}</TD><TD className="text-right tabular-nums"><Badge tono="alerta">{Number(f.stock_amount)} / {Number(f.articles.article_stock_min_general)}</Badge></TD></TR>)}</TBody></Table>}
+      {/* Alertas de stock */}
+      <Card variant="outlined" padding="md" className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-warning-500" />
+            Alertas de stock
+          </CardTitle>
+          <CardDescription>
+            {cargandoOperativo ? "Consultando niveles de inventario…" : sinBackend ? "No se pudo verificar el inventario." : bajoMinimo.length > 0 ? `${bajoMinimo.length} artículo(s) necesitan reposición.` : "No hay artículos por debajo del mínimo configurado."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {cargandoOperativo ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-gold-400 border-t-transparent" />
+              <span className="ml-2 text-sm text-neutral-500">Cargando stock…</span>
+            </div>
+          ) : sinBackend ? (
+            <InfoBox tipo="error">No se pudo verificar el inventario. Revisá la conexión con el servidor.</InfoBox>
+          ) : bajoMinimo.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-neutral-500">
+              <CheckCircle className="w-8 h-8 text-success-500 mr-2" />
+              Todo en orden. No hay alertas de stock.
+            </div>
+          ) : (
+            <TableContainer>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Artículo</TableHead>
+                  <TableHead>Depósito</TableHead>
+                  <TableHead align="right">Actual / Mínimo</TableHead>
+                  <TableHead>Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bajoMinimo.slice(0, 10).map((f) => (
+                  <TableRow key={f.stock_id}>
+                    <TableCell className="font-medium">{f.articles.article_name}</TableCell>
+                    <TableCell className="text-sm text-neutral-500">{f.deposit.deposit_name}</TableCell>
+                    <TableCell align="right" className="tabular-nums font-mono">
+                      {Number(f.stock_amount)} / {Number(f.articles.article_stock_min_general)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="danger" dot>Bajo mínimo</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </TableContainer>
+          )}
+        </CardContent>
+        {bajoMinimo.length > 10 && (
+          <CardFooter>
+            <Link href="/inventario" className="text-sm font-medium text-gold-600 hover:underline">
+              Ver todas las alertas ({bajoMinimo.length}) →
+            </Link>
+          </CardFooter>
+        )}
       </Card>
 
-      {/* Widget REP-08: Ocupación y Rendimiento por Temporada */}
-      <Card
-        className="mb-6"
-        titulo="Ocupación y Rendimiento por Temporada"
-        descripcion="Desempeño acumulado en el mes corriente según tarifas estacionales."
-      >
-        <div className="flex flex-col gap-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-carbon/55">Tasa de Ocupación</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
-                    {cargandoOcupacion ? "…" : `${reporteOcupacion?.resumen.tasa_ocupacion_global_pct ?? 0}%`}
-                  </p>
-                  <p className="mt-1 text-xs text-carbon/50">
-                    {reporteOcupacion?.resumen.noches_ocupadas ?? 0} de {reporteOcupacion?.resumen.capacidad_total_noches ?? 0} noches
-                  </p>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
-                  <Percent size={18} />
-                </div>
-              </div>
+      {/* Ocupación y Rendimiento por Temporada */}
+      <Card variant="outlined" padding="md" className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-gold-500" />
+            Ocupación y Rendimiento por Temporada
+          </CardTitle>
+          <CardDescription>Desempeño acumulado en el mes corriente según tarifas estacionales.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {cargandoOcupacion ? (
+            <CardSkeleton count={4} />
+          ) : reporteOcupacion ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard
+                icon={<Percent className="w-5 h-5" />}
+                title="Tasa de Ocupación"
+                value={`${reporteOcupacion.resumen.tasa_ocupacion_global_pct}%`}
+                subtitle={`${reporteOcupacion.resumen.noches_ocupadas} de ${reporteOcupacion.resumen.capacidad_total_noches} noches`}
+                iconBg="bg-gold-100"
+                iconColor="text-gold-600"
+              />
+              <MetricCard
+                icon={<DollarSign className="w-5 h-5" />}
+                title="Ingresos Alojamiento"
+                value={moneda(reporteOcupacion.resumen.ingresos_totales_alojamiento)}
+                subtitle="Facturación bruta estacional"
+                iconBg="bg-success-100"
+                iconColor="text-success-600"
+              />
+              <MetricCard
+                icon={<BedDouble className="w-5 h-5" />}
+                title="ADR (Tarifa Promedio)"
+                value={moneda(reporteOcupacion.resumen.adr_global)}
+                subtitle="Por noche vendida"
+                iconBg="bg-info-100"
+                iconColor="text-info-600"
+              />
+              <MetricCard
+                icon={<Calendar className="w-5 h-5" />}
+                title="RevPAR"
+                value={moneda(reporteOcupacion.resumen.revpar)}
+                subtitle="Por noche disponible"
+                iconBg="bg-purple-100"
+                iconColor="text-purple-600"
+              />
             </div>
-
-            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-carbon/55">Ingresos Alojamiento</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
-                    {cargandoOcupacion ? "…" : moneda(reporteOcupacion?.resumen.ingresos_totales_alojamiento ?? 0)}
-                  </p>
-                  <p className="mt-1 text-xs text-carbon/50">Facturación bruta estacional</p>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
-                  <DollarSign size={18} />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-carbon/55">ADR (Tarifa Promedio)</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
-                    {cargandoOcupacion ? "…" : moneda(reporteOcupacion?.resumen.adr_global ?? 0)}
-                  </p>
-                  <p className="mt-1 text-xs text-carbon/50">Por noche vendida</p>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
-                  <BedDouble size={18} />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-white p-4 shadow-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-carbon/55">RevPAR</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-carbon">
-                    {cargandoOcupacion ? "…" : moneda(reporteOcupacion?.resumen.revpar ?? 0)}
-                  </p>
-                  <p className="mt-1 text-xs text-carbon/50">Por noche disponible</p>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/15 text-carbon">
-                  <Calendar size={18} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-line bg-bone/30 px-4 py-2.5">
-            <span className="text-xs text-carbon/65">
+          ) : (
+            <InfoBox tipo="error">No se pudo cargar el reporte de ocupación.</InfoBox>
+          )}
+          <div className="mt-4 pt-4 border-t border-neutral-100 flex items-center justify-between">
+            <span className="text-xs text-neutral-500">
               Cálculo cruzado entre reservas efectivas y tarifas configuradas por temporada.
             </span>
             <Link
               href="/reportes/temporadas"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-carbon hover:text-gold transition-colors"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-neutral-700 hover:text-gold-600 transition-colors"
             >
               Ver reporte analítico completo
               <ArrowRight size={14} />
             </Link>
           </div>
-        </div>
+        </CardContent>
       </Card>
 
-      <Card className="mb-6" titulo="Resumen financiero" descripcion="Ingresos cobrados, egresos pagados y resultado neto por fecha.">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-lg border border-line bg-bone/40 p-1" aria-label="Período del reporte">
-            {(["SEMANA", "MES", "ANIO"] as const).map((opcion) => <button key={opcion} type="button" onClick={() => setPeriodo(opcion)} aria-pressed={periodo === opcion} className={`rounded-md px-4 py-2 text-sm transition-colors ${periodo === opcion ? "bg-carbon text-white" : "text-carbon/65 hover:bg-white"}`}>{opcion === "SEMANA" ? "Semana" : opcion === "MES" ? "Mes" : "Año"}</button>)}
+      {/* Resumen financiero */}
+      <Card variant="outlined" padding="md" className="mb-6">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle>Resumen financiero</CardTitle>
+              <CardDescription>Ingresos cobrados, egresos pagados y resultado neto por fecha.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
+              <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50 p-1" role="group" aria-label="Período del reporte">
+                {(["SEMANA", "MES", "ANIO"] as const).map((opcion) => (
+                  <button
+                    key={opcion}
+                    type="button"
+                    onClick={() => setPeriodo(opcion)}
+                    aria-pressed={periodo === opcion}
+                    className={cn(
+                      "rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                      periodo === opcion
+                        ? "bg-white text-neutral-900 shadow-sm"
+                        : "text-neutral-600 hover:text-neutral-900 hover:bg-white"
+                    )}
+                  >
+                    {opcion === "SEMANA" ? "Semana" : opcion === "MES" ? "Mes" : "Año"}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-neutral-600">
+                {periodo === "ANIO" ? "Año del reporte" : periodo === "SEMANA" ? "Fecha de la semana" : "Fecha del mes"}
+                {periodo === "ANIO" ? (
+                  <select
+                    value={fechaFinanzas.slice(0, 4)}
+                    onChange={e => setFechaFinanzas(`${e.target.value}-01-01`)}
+                    className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-400/20"
+                  >
+                    {Array.from({ length: new Date().getFullYear() - 1998 }, (_, i) => new Date().getFullYear() + 1 - i).map(anio => (
+                      <option key={anio} value={anio}>{anio}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="date"
+                    value={fechaFinanzas}
+                    onChange={(e) => setFechaFinanzas(e.target.value)}
+                    className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-400/20"
+                  />
+                )}
+              </label>
+            </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-carbon/65">{periodo === "ANIO" ? "Año del reporte" : periodo === "SEMANA" ? "Fecha de la semana" : "Fecha del mes"}{periodo === "ANIO" ? <select value={fechaFinanzas.slice(0, 4)} onChange={e => setFechaFinanzas(`${e.target.value}-01-01`)} className="rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon focus:border-gold focus:outline-none">{Array.from({ length: new Date().getFullYear() - 1998 }, (_, i) => new Date().getFullYear() + 1 - i).map(anio => <option key={anio} value={anio}>{anio}</option>)}</select> : <input type="date" value={fechaFinanzas} onChange={(e) => setFechaFinanzas(e.target.value)} className="rounded-md border border-line bg-white px-3 py-2 text-sm text-carbon focus:border-gold focus:outline-none" />}</label>
-          <div className="flex gap-2">
-            <Button variante="secundario" disabled={!reporte || cargandoReporte || exportando !== null} cargando={exportando === "pdf"} onClick={() => exportarFinanzas("pdf")}><Download size={15} />PDF</Button>
-            <Button variante="secundario" disabled={!reporte || cargandoReporte || exportando !== null} cargando={exportando === "xlsx"} onClick={() => exportarFinanzas("xlsx")}><Download size={15} />Excel</Button>
-          </div>
-        </div>
+        </CardHeader>
+        <CardContent>
+          {errorExportacion && <InfoBox tipo="error" className="mb-4">{errorExportacion}</InfoBox>}
+          {errorReporte ? (
+            <InfoBox tipo="error">No se pudo cargar el resumen financiero. Revisá que el backend y la base de datos estén disponibles.</InfoBox>
+          ) : (
+            <>
+              {/* KPIs Grid */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+                {kpis.map((kpi, i) => (
+                  <MetricCard key={i} {...kpi} />
+                ))}
+              </div>
 
-        {errorExportacion && <div className="mb-4"><InfoBox tipo="error">{errorExportacion}</InfoBox></div>}
-        {errorReporte ? <InfoBox tipo="error">No se pudo cargar el resumen financiero. Revisá que el backend y la base de datos estén disponibles.</InfoBox> : <>
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-lg border border-success/20 bg-success/5 p-4"><p className="text-xs uppercase tracking-wide text-carbon/55">Ingresos registrados</p><p className="mt-1 text-xl font-semibold tabular-nums text-success">{cargandoReporte ? "…" : moneda(reporte?.totales.ingresos ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">{variacionTexto(reporte.totales.ingresos, reporte.comparacion.totales.ingresos)}</p>}</div>
-            <div className="rounded-lg border border-red-200 bg-red-50/60 p-4"><p className="text-xs uppercase tracking-wide text-carbon/55">Egresos pagados</p><p className="mt-1 text-xl font-semibold tabular-nums text-red-700">{cargandoReporte ? "…" : moneda(reporte?.totales.egresos ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">{variacionTexto(reporte.totales.egresos, reporte.comparacion.totales.egresos)}</p>}</div>
-            <div className={`rounded-lg border p-4 ${(reporte?.totales.neto ?? 0) < 0 ? "border-red-300 bg-red-50" : "border-gold/25 bg-gold/5"}`}><p className="text-xs uppercase tracking-wide text-carbon/55">Resultado del período</p><p className={`mt-1 text-xl font-semibold tabular-nums ${(reporte?.totales.neto ?? 0) < 0 ? "text-red-700" : "text-carbon"}`}>{cargandoReporte ? "…" : moneda(reporte?.totales.neto ?? 0)}</p>{reporte && <p className="mt-1 text-xs text-carbon/55">Comparado con {periodo === "ANIO" ? reporte.comparacion.desde.slice(0, 4) : `${fechaCorta(reporte.comparacion.desde)} — ${fechaCorta(reporte.comparacion.hasta)}`}</p>}</div>
-            <div className="rounded-lg border border-line bg-white p-4"><p className="text-xs uppercase tracking-wide text-carbon/55">Margen porcentual</p><p className={`mt-1 text-xl font-semibold tabular-nums ${(reporte?.totales.margen_porcentual ?? 0) < 0 ? "text-red-700" : "text-carbon"}`}>{cargandoReporte ? "…" : reporte?.totales.margen_porcentual === null ? "Sin ingresos" : `${reporte?.totales.margen_porcentual.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</p><p className="mt-1 text-xs text-carbon/55">Resultado ÷ ingresos</p></div>
-          </div>
-          {cargandoReporte && !reporte ? <p className="py-12 text-center text-sm text-carbon/50">Cargando movimientos financieros…</p> : reporte && <>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-carbon/50"><span>{periodo === "ANIO" ? `Año ${reporte.desde.slice(0, 4)}` : `${fechaCorta(reporte.desde)} — ${fechaCorta(reporte.hasta)}`}</span><div className="flex flex-wrap gap-x-4 gap-y-1"><span className="flex items-center gap-1.5"><i className="h-3 w-3 bg-[#008580]" />Ingresos</span><span className="flex items-center gap-1.5"><i className="h-3 w-3 bg-[#d63f3f]" />Egresos</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-[#e8b943]" />Resultado</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-danger" />Resultado negativo</span></div></div>
-            <GraficoFinanciero puntos={reporte.serie} anual={periodo === "ANIO"} />
-            <section className="mt-5 border-t border-line pt-5" aria-labelledby="resultado-diario-titulo">
-              <h3 id="resultado-diario-titulo" className="mb-3 font-serif text-lg text-carbon">Resultado por {periodo === "ANIO" ? "mes" : "día"}</h3>
-              <Table><THead><TH>{periodo === "ANIO" ? "Mes" : "Fecha"}</TH><TH className="text-right">Ingresos</TH><TH className="text-right">Egresos</TH><TH className="text-right">Resultado</TH><TH className="text-right">Margen</TH></THead><TBody>
-                {reporte.serie.map(punto => <TR key={punto.fecha} className={punto.neto < 0 ? "bg-red-50" : undefined}>
-                  <TD>{periodo === "ANIO" ? new Date(`${punto.fecha}T12:00:00`).toLocaleDateString("es-AR", { month: "long" }) : fechaCorta(punto.fecha)}{punto.pendiente && <span className="ml-2 text-xs text-carbon/60">Pendiente</span>}</TD>
-                  <TD className="text-right tabular-nums">{punto.pendiente ? "—" : moneda(punto.ingresos)}</TD>
-                  <TD className="text-right tabular-nums">{punto.pendiente ? "—" : moneda(punto.egresos)}</TD>
-                  <TD className={`text-right font-medium tabular-nums ${punto.neto < 0 ? "text-red-700" : ""}`}>{punto.neto < 0 && <Badge tono="alerta">Negativo</Badge>} {punto.pendiente ? "—" : moneda(punto.neto)}</TD>
-                  <TD className={`text-right tabular-nums ${punto.neto < 0 ? "text-red-700" : ""}`}>{punto.pendiente || punto.margen_porcentual === null ? "—" : `${punto.margen_porcentual.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}</TD>
-                </TR>)}
-              </TBody></Table>
-            </section>
-          </>}
-          {reporte && reporte.movimientos.length > 0 && <details className="mt-4 overflow-hidden rounded-lg border border-line"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-carbon hover:bg-bone/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-gold">Ver detalle de {reporte.movimientos.length} movimiento{reporte.movimientos.length === 1 ? "" : "s"}</summary><div className="border-t border-line"><Table scrollLabel="Detalle de movimientos financieros; desplazamiento horizontal disponible" className="table-fixed min-w-[52rem]"><THead><TH className="w-28 px-4 text-[#514d46]">Fecha</TH><TH className="w-32 px-4 text-[#514d46]">Tipo</TH><TH className="px-4 text-[#514d46]">Detalle</TH><TH className="w-40 px-4 text-right text-[#514d46]">Importe</TH><TH className="w-28 px-4 text-center text-[#514d46]">Acceso</TH></THead><TBody>{reporte.movimientos.map((m, i) => <TR key={`${m.fecha}-${m.tipo}-${i}`}><TD className="whitespace-nowrap px-4 py-2.5 text-sm tabular-nums">{fechaCorta(m.fecha)}</TD><TD className="px-4 py-2.5"><Badge tono={m.tipo === "INGRESO" ? "activo" : "alerta"}>{m.tipo === "INGRESO" ? "Ingreso" : "Egreso"}</Badge></TD><TD title={m.detalle} className="break-words px-4 py-2.5 text-sm leading-5">{m.detalle}</TD><TD className="whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums">{moneda(m.importe)}</TD><TD className="px-4 py-2.5 text-center"><Link aria-label={`Abrir ${m.tipo === "INGRESO" ? "reservas" : "órdenes de pago"}`} className="inline-flex rounded px-2 py-1 text-sm font-medium text-[#344b58] underline decoration-[#a67d4b] underline-offset-2 hover:text-[#17252a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#805b2d]" href={m.tipo === "INGRESO" ? "/reservas" : "/proveedores/ordenes-pago"}>{m.tipo === "INGRESO" ? "Reservas" : "Órdenes"}</Link></TD></TR>)}</TBody></Table></div></details>}
-          <p className="mt-3 rounded-md bg-bone/45 px-3 py-2 text-sm leading-6 text-[#514d46]">Ingresos: alojamiento y cargos de habitación cobrados. Egresos: órdenes de pago confirmadas desde la fuente compartida con REP-07. Margen: resultado del período dividido por sus ingresos; si no hubo ingresos, no se calcula.</p>
-        </>}
+              {/* Additional Charts Row */}
+              {reporte && (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 mb-6 animate-slide-up-slow">
+                  <Card titulo="Distribución Ingresos vs Egresos" descripcion="Participación relativa de ingresos y egresos en el período." className="stagger-1 animate-slide-up-slow">
+                    <DonutFinanciero reporte={reporte} />
+                  </Card>
+                  <Card titulo="Tendencia financiera" descripcion="Evolución de ingresos, egresos y resultado neto a lo largo del período." className="stagger-2 animate-slide-up-slow">
+                    <LineaTendenciaFinanciera reporte={reporte} />
+                  </Card>
+                </div>
+              )}
+
+              {cargandoReporte && !reporte ? (
+                <CardSkeleton count={4} />
+              ) : reporte && (
+                <>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
+                    <span>{periodo === "ANIO" ? `Año ${reporte.desde.slice(0, 4)}` : `${fechaCorta(reporte.desde)} — ${fechaCorta(reporte.hasta)}`}</span>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-success-500" /> Ingresos</span>
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-danger-500" /> Egresos</span>
+                      <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-gold-400" /> Resultado</span>
+                    </div>
+                  </div>
+
+                  {/* Financial Chart */}
+                  <FinancialChart
+                    points={reporte.serie}
+                    selectedDate={fechaSeleccionadaGrafico}
+                    onSelectDate={setFechaSeleccionadaGrafico}
+                    period={periodo}
+                  />
+
+                  {/* Detail Table */}
+                  <div className="mt-6 border-t border-neutral-100 pt-6">
+                    <h3 className="mb-4 text-lg font-semibold text-neutral-900">Resultado por {periodo === "ANIO" ? "mes" : "día"}</h3>
+                    <TableContainer>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{periodo === "ANIO" ? "Mes" : "Fecha"}</TableHead>
+                          <TableHead align="right">Ingresos</TableHead>
+                          <TableHead align="right">Egresos</TableHead>
+                          <TableHead align="right">Resultado</TableHead>
+                          <TableHead align="right">Margen</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {reporte.serie.map(punto => (
+                          <TableRow key={punto.fecha} className={punto.neto < 0 ? "bg-danger-50" : undefined}>
+                            <TableCell>
+                              {periodo === "ANIO"
+                                ? format(new Date(`${punto.fecha}T12:00:00`), "MMMM", { locale: es })
+                                : fechaCorta(punto.fecha)}
+                              {punto.pendiente && <Badge variant="ghost" className="ml-2">Pendiente</Badge>}
+                            </TableCell>
+                            <TableCell align="right" className="tabular-nums">{punto.pendiente ? "—" : moneda(punto.ingresos)}</TableCell>
+                            <TableCell align="right" className="tabular-nums">{punto.pendiente ? "—" : moneda(punto.egresos)}</TableCell>
+                            <TableCell align="right" className={cn("font-medium tabular-nums", punto.neto < 0 ? "text-danger-700" : "text-neutral-900")}>
+                              {punto.pendiente ? "—" : moneda(punto.neto)}
+                            </TableCell>
+                            <TableCell align="right" className={cn("tabular-nums", punto.neto < 0 ? "text-danger-700" : "text-neutral-600")}>
+                              {punto.pendiente || punto.margen_porcentual === null ? "—" : `${punto.margen_porcentual.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </TableContainer>
+                  </div>
+
+                  {reporte.movimientos.length > 0 && (
+                    <details className="mt-6 overflow-hidden rounded-lg border border-neutral-200">
+                      <summary className="cursor-pointer px-4 py-3 font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400">
+                        Ver detalle de {reporte.movimientos.length} movimiento{reporte.movimientos.length === 1 ? "" : "s"}
+                      </summary>
+                      <div className="border-t border-neutral-100">
+                        <TableContainer>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-28">Fecha</TableHead>
+                              <TableHead className="w-32">Tipo</TableHead>
+                              <TableHead>Detalle</TableHead>
+                              <TableHead className="w-40 text-right">Importe</TableHead>
+                              <TableHead className="w-28 text-center">Acceso</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {reporte.movimientos.map((m, i) => (
+                              <TableRow key={`${m.fecha}-${m.tipo}-${i}`}>
+                                <TableCell className="whitespace-nowrap tabular-nums">{fechaCorta(m.fecha)}</TableCell>
+                                <TableCell>
+                                  <Badge variant={m.tipo === "INGRESO" ? "success" : "danger"}>
+                                    {m.tipo === "INGRESO" ? "Ingreso" : "Egreso"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm">{m.detalle}</TableCell>
+                                <TableCell className="text-right font-semibold tabular-nums">{moneda(m.importe)}</TableCell>
+                                <TableCell className="text-center">
+                                  <Link
+                                    href={m.tipo === "INGRESO" ? "/reservas" : "/proveedores/ordenes-pago"}
+                                    className="text-sm font-medium text-gold-600 underline hover:text-gold-700"
+                                  >
+                                    {m.tipo === "INGRESO" ? "Reservas" : "Órdenes"}
+                                  </Link>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </TableContainer>
+                      </div>
+                    </details>
+                  )}
+
+                  <p className="mt-4 rounded-lg bg-neutral-50 px-3 py-2 text-sm leading-6 text-neutral-600">
+                    Ingresos: alojamiento y cargos de habitación cobrados. Egresos: órdenes de pago confirmadas.
+                    Margen: resultado del período dividido por sus ingresos; si no hubo ingresos, no se calcula.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+        </CardContent>
       </Card>
 
       {sinBackend && (
-        <div className="mb-6">
-          <InfoBox tipo="error" titulo="Sin conexión con el servidor:">
-            no se pudieron cargar los datos. Verificá que el backend esté corriendo en el
-            puerto configurado en NEXT_PUBLIC_API_URL.
-          </InfoBox>
-        </div>
+        <InfoBox tipo="error" className="mb-6" titulo="Sin conexión con el servidor:">
+          no se pudieron cargar los datos. Verificá que el backend esté corriendo en el
+          puerto configurado en NEXT_PUBLIC_API_URL.
+        </InfoBox>
       )}
 
-      <div className="grid gap-6">
-        <Card titulo="Últimos movimientos" descripcion="Las cinco operaciones más recientes.">
+      {/* Últimos movimientos */}
+      <Card variant="outlined" padding="md">
+        <CardHeader>
+          <CardTitle>Últimos movimientos</CardTitle>
+          <CardDescription>Las cinco operaciones más recientes.</CardDescription>
+        </CardHeader>
+        <CardContent>
           {movimientos.length === 0 ? (
-            <p className="py-6 text-center text-sm text-carbon/45">Todavía no hay movimientos.</p>
+            <EmptyStates.noData />
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="divide-y divide-neutral-100">
               {movimientos.map((m) => (
                 <li key={m.stock_movement_id} className="flex items-center justify-between py-3">
                   <div>
-                    <p className="text-sm font-medium text-carbon">
+                    <p className="text-sm font-medium text-neutral-900">
                       {m.movement_type.movement_type.replaceAll("_", " ")}
                     </p>
-                    <p className="text-xs text-carbon/50">
+                    <p className="text-xs text-neutral-500">
                       {m.deposit_origin?.deposit_name ?? "Proveedor"} →{" "}
                       {m.deposit_destination?.deposit_name ?? "Consumo"}
                     </p>
                   </div>
-                  <span className="text-xs text-carbon/45">
-                    {new Date(m.transaction_date).toLocaleDateString("es-AR")}
+                  <span className="text-xs text-neutral-400 whitespace-nowrap">
+                    {format(new Date(m.transaction_date), "dd MMM yyyy", { locale: es })}
                   </span>
                 </li>
               ))}
             </ul>
           )}
-        </Card>
-      </div>
+        </CardContent>
+      </Card>
     </>
   );
 }
+

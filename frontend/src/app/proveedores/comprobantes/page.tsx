@@ -20,6 +20,7 @@ import {
   TR,
   TD,
 } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { api, ApiError } from "@/lib/api";
 import type { Comprobante, Proveedor, TipoComprobante } from "@/lib/types";
 
@@ -412,9 +413,7 @@ export default function ComprobantesPage() {
         )}
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">
-            Cargando comprobantes…
-          </p>
+          <SkeletonTable rows={6} columns={9} />
         ) : visibles.length === 0 ? (
           <EmptyState
             titulo="No hay comprobantes registrados"
@@ -435,17 +434,17 @@ export default function ComprobantesPage() {
           />
         ) : (
           <>
-            <Table>
+            <Table className="table-fixed w-full">
               <THead>
-                <TH>Comprobante</TH>
-                <TH>Proveedor</TH>
-                <TH>Emisión</TH>
-                <TH>Vencimiento</TH>
-                <TH className="text-right">Total</TH>
-                <TH className="text-right">Pagado</TH>
-                <TH className="text-right">Pendiente</TH>
-                <TH>Estado</TH>
-                <TH className="text-right">Acciones</TH>
+                <TH style={{ width: '18%' }}>Comprobante</TH>
+                <TH style={{ width: '20%' }}>Proveedor</TH>
+                <TH style={{ width: '12%' }}>Emisión</TH>
+                <TH style={{ width: '12%' }}>Vencimiento</TH>
+                <TH className="text-right" style={{ width: '10%' }}>Total</TH>
+                <TH className="text-right" style={{ width: '10%' }}>Pagado</TH>
+                <TH className="text-right" style={{ width: '10%' }}>Pendiente</TH>
+                <TH style={{ width: '8%' }}>Estado</TH>
+                <TH className="text-right" style={{ width: '8%' }}>Acciones</TH>
               </THead>
               <TBody>
                 {visiblesPagina.map((c) => (

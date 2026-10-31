@@ -19,10 +19,12 @@ export function InfoBox({
   tipo = "regla",
   titulo,
   children,
+  className,
 }: {
   tipo?: Tipo;
   titulo?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     <div
@@ -30,6 +32,7 @@ export function InfoBox({
       className={cn(
         "flex gap-3 rounded-lg border px-4 py-3 text-sm",
         estilos[tipo],
+        className,
       )}
     >
       <span

@@ -5,6 +5,8 @@ const router = Router();
 
 router.get('/catalogos', controller.catalogos);
 router.get('/clientes', controller.clientes);
+router.get('/clientes/:id', controller.obtenerCliente);
+router.patch('/clientes/:id', controller.modificarCliente);
 router.get('/habitaciones', controller.habitaciones);
 router.post('/holds', controller.crearHold);
 router.patch('/holds/:id/liberar', controller.liberarHold);

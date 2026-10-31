@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, EmptyState, InfoBox, Select, Table, THead, TH, TBody, TR, TD } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { api, ApiError, authHeaders, urlDescarga } from "@/lib/api";
 import type { Deposito, Movimiento, TipoMovimiento } from "@/lib/types";
 
@@ -216,7 +217,7 @@ export default function HistorialMovimientosPage() {
         {error && <InfoBox tipo="error">{error}</InfoBox>}
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando historial…</p>
+          <SkeletonTable rows={6} columns={6} />
         ) : movimientos.length === 0 ? (
           <EmptyState
             titulo="Sin movimientos registrados"
@@ -226,12 +227,12 @@ export default function HistorialMovimientosPage() {
           <>
             <Table>
               <THead>
-                <TH>Fecha</TH>
-                <TH>Tipo</TH>
-                <TH>Origen</TH>
-                <TH>Destino</TH>
-                <TH>Artículos</TH>
-                <TH>Empleado</TH>
+                <TH style={{ width: '18%' }}>Fecha</TH>
+                <TH style={{ width: '14%' }}>Tipo</TH>
+                <TH style={{ width: '18%' }}>Origen</TH>
+                <TH style={{ width: '18%' }}>Destino</TH>
+                <TH style={{ width: '22%' }}>Artículos</TH>
+                <TH style={{ width: '10%' }}>Empleado</TH>
               </THead>
               <TBody>
                 {movimientosPaginados.map((m) => (

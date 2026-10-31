@@ -29,6 +29,7 @@ const serviciosHabitacionRoutes = require('./modules/servicios-habitacion/servic
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
 const publicoRoutes = require('./modules/publico/publico.routes');
 const reportesRoutes = require('./modules/reportes/reportes.routes');
+const schedulerRoutes = require('./modules/scheduler/scheduler.routes');
 const authRoutes = require('./modules/auth/auth.routes');
 const { autenticarYAutorizar } = require('./middlewares/autenticacion');
 
@@ -79,6 +80,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/ingresos', require('./modules/ingresos/ingresos.routes'));
 app.use('/api/egresos', require('./modules/egresos/egresos.routes'));
 app.use('/api/reportes', reportesRoutes);
+app.use('/api/scheduler', schedulerRoutes);
 
 // ---------------------------------------------------------------------------
 // Alias en inglés.

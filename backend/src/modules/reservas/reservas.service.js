@@ -242,6 +242,59 @@ const liberarHold = async (id, employeeId) => {
   return prisma.room_hold.update({ where: { hold_id: holdId }, data: { released: true } });
 };
 const listarHuespedes = () => prisma.guest.findMany({ where: { guest_state: true }, orderBy: [{ last_name: 'asc' }, { first_name: 'asc' }] });
+
+const obtenerHuesped = async (guestId) => {
+  const huesped = await prisma.guest.findUnique({ where: { guest_id: guestId } });
+  if (!huesped) throw noEncontrado('El huésped no existe.');
+  return huesped;
+};
+
+const modificarHuesped = async (guestId, datos) => {
+  const { document_type, document_number, first_name, last_name, email, phone, birth_date, nationality, address, observations, guest_state } = datos;
+
+  // Validar tipo de documento si se proporciona
+  if (document_type && !['DNI', 'PASAPORTE', 'CEDULA', 'LC', 'LE'].includes(document_type.toUpperCase())) {
+    throw invalido('El tipo de documento no es válido.');
+  }
+
+  // Validar email si se proporciona
+  if (email && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    throw invalido('El correo electrónico no es válido.');
+  }
+
+  // Validar fecha de nacimiento si se proporciona
+  if (birth_date && birth_date.trim()) {
+    const fecha = new Date(birth_date);
+    if (isNaN(fecha.getTime()) || fecha >= new Date()) {
+      throw invalido('La fecha de nacimiento no es válida.');
+    }
+  }
+
+  const datosActualizar = {};
+  if (document_type) datosActualizar.document_type = document_type.toUpperCase();
+  if (document_number) datosActualizar.document_number = document_number.trim().toUpperCase();
+  if (first_name) datosActualizar.first_name = first_name.trim();
+  if (last_name) datosActualizar.last_name = last_name.trim();
+  if (email !== undefined) datosActualizar.email = email.trim() || null;
+  if (phone !== undefined) datosActualizar.phone = phone.trim() || null;
+  if (birth_date !== undefined) datosActualizar.birth_date = birth_date || null;
+  if (nationality !== undefined) datosActualizar.nationality = nationality.trim() || null;
+  if (address !== undefined) datosActualizar.address = address.trim() || null;
+  if (observations !== undefined) datosActualizar.observations = observations.trim() || null;
+  if (guest_state !== undefined) datosActualizar.guest_state = Boolean(guest_state);
+
+  try {
+    return await prisma.guest.update({
+      where: { guest_id: guestId },
+      data: datosActualizar,
+    });
+  } catch (error) {
+    if (error.code === 'P2002') throw conflicto('Ya existe un huésped con ese documento.');
+    if (error.code === 'P2025') throw noEncontrado('El huésped no existe.');
+    throw error;
+  }
+};
+
 const listarHabitaciones = () => prisma.room.findMany({
   where: { active: true, room_state: { notIn: ['FUERA_DE_SERVICIO', 'MANTENIMIENTO'] } },
   select: { room_id: true, room_number: true, room_state: true, room_type: { select: { room_type_id: true, room_type_name: true } } }, orderBy: { room_number: 'asc' },
@@ -640,6 +693,6 @@ const barrerNoShows = async () => {
 };
 
 module.exports = {
-  crear, modificar, cancelar, confirmar, crearHold, liberarHold, catalogos, listarHuespedes, listarHabitaciones, expirarPendientes,
+  crear, modificar, cancelar, confirmar, crearHold, liberarHold, catalogos, listarHuespedes, obtenerHuesped, modificarHuesped, listarHabitaciones, expirarPendientes,
   checkIn, checkOut, pagosAlojamiento, estadoCuenta, registrarPagoAlojamiento, listar, obtener, barrerNoShows,
 };

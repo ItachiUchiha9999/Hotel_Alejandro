@@ -3,6 +3,7 @@ const env = require('./config/env');
 const prisma = require('./db/prisma');
 const reservasService = require('./modules/reservas/reservas.service');
 const { procesarCorreos } = require('./modules/publico/correoReserva.service');
+const { inicializarScheduler } = require('./modules/scheduler/scheduler.service');
 let correoEnCurso = false;
 const enviarPendientes = async () => {
   if (correoEnCurso) return;
@@ -21,6 +22,9 @@ const expirarPendientes = () => reservasService.expirarPendientes().catch((error
 expirarPendientes();
 const jobExpiracionReservas = setInterval(expirarPendientes, 60 * 1000);
 jobExpiracionReservas.unref();
+
+// Inicializar scheduler de tareas programadas (no-shows, holds, mantenimientos)
+inicializarScheduler();
 
 const server = app.listen(env.PORT, () => {
   console.log(`SIGH backend escuchando en http://localhost:${env.PORT}`);

@@ -237,3 +237,23 @@ export interface ReservaDetalle extends Reserva {
   check_in: CheckInInfo | null;
   check_out: CheckOutInfo | null;
 }
+
+/* ---------------------------------------------------------------------------
+ * Huéspedes (RES-01)
+ * ------------------------------------------------------------------------- */
+
+export interface Huesped {
+  guest_id: number;
+  document_type: "DNI" | "PASAPORTE" | "CEDULA" | "LC" | "LE";
+  document_number: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  birth_date: string | null;
+  nationality: string | null;
+  address: string | null;
+  observations: string | null;
+  guest_state: boolean;
+  creation_date: string;
+}

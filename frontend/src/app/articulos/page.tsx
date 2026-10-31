@@ -6,6 +6,7 @@ import {
   Badge, Button, Card, EmptyState, InfoBox, Input, Select,
   Table, THead, TH, TBody, TR, TD,
 } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { api, ApiError } from "@/lib/api";
 import type { Articulo, Categoria } from "@/lib/types";
 
@@ -178,7 +179,7 @@ export default function CatalogoArticulosPage() {
         {errorAccion && <InfoBox tipo="error">{errorAccion}</InfoBox>}
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando catálogo…</p>
+          <SkeletonTable rows={6} columns={7} />
         ) : visibles.length === 0 ? (
           <EmptyState
             titulo="No hay artículos para mostrar"

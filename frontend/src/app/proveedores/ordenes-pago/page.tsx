@@ -19,6 +19,7 @@ import {
   TR,
   TD,
 } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { api, ApiError } from "@/lib/api";
 import type { Proveedor } from "@/lib/types";
 
@@ -574,14 +575,14 @@ export default function OrdenesPagoPage() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <Table>
+                    <Table className="table-fixed w-full">
                       <THead>
-                        <TH className="w-10">Pagar</TH>
-                        <TH>Comprobante</TH>
-                        <TH>Emisión</TH>
-                        <TH className="text-right">Total original</TH>
-                        <TH className="text-right">Saldo pendiente</TH>
-                        <TH className="text-right">Monto a cancelar</TH>
+                        <TH style={{ width: '8%' }}>Pagar</TH>
+                        <TH style={{ width: '25%' }}>Comprobante</TH>
+                        <TH style={{ width: '15%' }}>Emisión</TH>
+                        <TH className="text-right" style={{ width: '18%' }}>Total original</TH>
+                        <TH className="text-right" style={{ width: '18%' }}>Saldo pendiente</TH>
+                        <TH className="text-right" style={{ width: '16%' }}>Monto a cancelar</TH>
                       </THead>
                       <TBody>
                         {imputaciones.map((item) => (
@@ -735,12 +736,12 @@ export default function OrdenesPagoPage() {
                       {ordenDetalle.payment_order_detail.length === 0 ? (
                         <p className="text-xs text-carbon/45">No hay comprobantes asociados.</p>
                       ) : (
-                        <Table>
+                        <Table className="table-fixed w-full">
                           <THead>
-                            <TH>Comprobante</TH>
-                            <TH>Fecha</TH>
-                            <TH className="text-right">Total Factura</TH>
-                            <TH className="text-right">Importe Aplicado</TH>
+                            <TH style={{ width: '35%' }}>Comprobante</TH>
+                            <TH style={{ width: '20%' }}>Fecha</TH>
+                            <TH className="text-right" style={{ width: '22%' }}>Total Factura</TH>
+                            <TH className="text-right" style={{ width: '23%' }}>Importe Aplicado</TH>
                           </THead>
                           <TBody>
                             {ordenDetalle.payment_order_detail.map((d) => (
@@ -819,7 +820,7 @@ export default function OrdenesPagoPage() {
         </div>
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando órdenes de pago…</p>
+          <SkeletonTable rows={6} columns={7} />
         ) : ordenes.length === 0 ? (
           <EmptyState
             titulo="No hay órdenes de pago"
@@ -829,15 +830,15 @@ export default function OrdenesPagoPage() {
             }
           />
         ) : (
-          <Table>
+          <Table className="table-fixed w-full">
             <THead>
-              <TH># Orden</TH>
-              <TH>Proveedor</TH>
-              <TH>Fecha / Hora Pago</TH>
-              <TH>Método</TH>
-              <TH className="text-right">Total Pagado</TH>
-              <TH>Estado</TH>
-              <TH>Acciones</TH>
+              <TH style={{ width: '12%' }}># Orden</TH>
+              <TH style={{ width: '25%' }}>Proveedor</TH>
+              <TH style={{ width: '20%' }}>Fecha / Hora Pago</TH>
+              <TH style={{ width: '15%' }}>Método</TH>
+              <TH className="text-right" style={{ width: '15%' }}>Total Pagado</TH>
+              <TH style={{ width: '8%' }}>Estado</TH>
+              <TH style={{ width: '5%' }}>Acciones</TH>
             </THead>
             <TBody>
               {ordenes.map((orden) => {

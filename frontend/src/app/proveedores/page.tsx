@@ -6,6 +6,7 @@ import {
   Badge, Button, Card, EmptyState, InfoBox, Input, Select,
   Table, THead, TH, TBody, TR, TD,
 } from "@/components/ui";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { api, ApiError } from "@/lib/api";
 
 type FiltroEstado = "todos" | "activos" | "inactivos";
@@ -157,7 +158,7 @@ export default function CatalogoProveedoresPage() {
         {errorAccion && <InfoBox tipo="error">{errorAccion}</InfoBox>}
 
         {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando proveedores…</p>
+          <SkeletonTable rows={6} columns={6} />
         ) : visibles.length === 0 ? (
           <EmptyState
             titulo="No hay proveedores para mostrar"
@@ -173,14 +174,14 @@ export default function CatalogoProveedoresPage() {
             }
           />
         ) : (
-          <Table>
+          <Table className="table-fixed w-full">
             <THead>
-              <TH>CUIT</TH>
-              <TH>Razón social / Fantasía</TH>
-              <TH>Condición Fiscal</TH>
-              <TH>Contacto</TH>
-              <TH>Estado</TH>
-              <TH className="text-right">Acciones</TH>
+              <TH style={{ width: '18%' }}>CUIT</TH>
+              <TH style={{ width: '28%' }}>Razón social / Fantasía</TH>
+              <TH style={{ width: '18%' }}>Condición Fiscal</TH>
+              <TH style={{ width: '20%' }}>Contacto</TH>
+              <TH style={{ width: '8%' }}>Estado</TH>
+              <TH className="text-right" style={{ width: '8%' }}>Acciones</TH>
             </THead>
             <TBody>
               {visibles.map((p) => (

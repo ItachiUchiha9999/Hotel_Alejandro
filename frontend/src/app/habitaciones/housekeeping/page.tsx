@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import {
   Badge, Button, Card, EmptyState, InfoBox, Table, THead, TH, TBody, TR, TD,
 } from "@/components/ui";
+import { SkeletonCard, SkeletonKPI } from "@/components/ui/Skeleton";
 import { BloqueoForm } from "@/components/housekeeping/BloqueoForm";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -125,7 +126,27 @@ export default function HousekeepingPage() {
       />
 
       {/* ---------- Resumen por estado ---------- */}
-      {resumen && (
+      {cargando ? (
+        <>
+          <div className="mb-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <SkeletonKPI />
+            <SkeletonKPI />
+            <SkeletonKPI />
+            <SkeletonKPI />
+            <SkeletonKPI />
+          </div>
+          <Card>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+          </Card>
+        </>
+      ) : resumen && (
         <div className="mb-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {(Object.keys(ESTADO_UI) as EstadoHabitacion[]).map((e) => (
             <button
@@ -209,9 +230,7 @@ export default function HousekeepingPage() {
           ))}
         </div>
 
-        {cargando ? (
-          <p className="py-10 text-center text-sm text-carbon/50">Cargando habitaciones…</p>
-        ) : visibles.length === 0 ? (
+        {visibles.length === 0 ? (
           <EmptyState
             titulo={filtro === "PENDIENTES" ? "No hay tareas pendientes" : "No hay habitaciones para mostrar"}
             descripcion={
@@ -306,14 +325,14 @@ export default function HousekeepingPage() {
           {abiertos.length === 0 ? (
             <p className="py-6 text-center text-sm text-carbon/45">No hay bloqueos abiertos.</p>
           ) : (
-            <Table>
+            <Table className="table-fixed w-full">
               <THead>
-                <TH>Habitación</TH>
-                <TH>Tipo</TH>
-                <TH>Motivo</TH>
-                <TH>Desde</TH>
-                <TH>Hasta (est.)</TH>
-                <TH>Registró</TH>
+                <TH style={{ width: '15%' }}>Habitación</TH>
+                <TH style={{ width: '18%' }}>Tipo</TH>
+                <TH style={{ width: '25%' }}>Motivo</TH>
+                <TH style={{ width: '15%' }}>Desde</TH>
+                <TH style={{ width: '15%' }}>Hasta (est.)</TH>
+                <TH style={{ width: '12%' }}>Registró</TH>
               </THead>
               <TBody>
                 {abiertos.map((b) => {
