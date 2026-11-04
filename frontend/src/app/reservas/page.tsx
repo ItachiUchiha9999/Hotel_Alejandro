@@ -151,6 +151,7 @@ export default function ReservasPage() {
   const [reservaCheckIn, setReservaCheckIn] = useState<Reserva | null>(null);
   const [reservaCuenta, setReservaCuenta] = useState<Reserva | null>(null);
   const [reservaHuespedes, setReservaHuespedes] = useState<Reserva | null>(null);
+  const [reservaConsumos, setReservaConsumos] = useState<Reserva | null>(null);
   const [reservaEditar, setReservaEditar] = useState<Reserva | null>(null);
   const [reservaCancelar, setReservaCancelar] = useState<Reserva | null>(null);
   const [reservaConfirmar, setReservaConfirmar] = useState<Reserva | null>(null);
@@ -347,6 +348,7 @@ export default function ReservasPage() {
                         onCancelar={() => setReservaCancelar(r)}
                         onCheckIn={() => setReservaCheckIn(r)}
                         onHuespedes={() => setReservaHuespedes(r)}
+                        onConsumos={() => setReservaConsumos(r)}
                         onCuenta={() => setReservaCuenta(r)}
                       />
                     </div>
@@ -409,6 +411,13 @@ export default function ReservasPage() {
         />
       )}
 
+      {reservaConsumos && (
+        <ModalConsumosHuespedes
+          reserva={reservaConsumos}
+          onCerrar={() => setReservaConsumos(null)}
+        />
+      )}
+
       {reservaEditar && (
         <ModalEditarReserva
           reserva={reservaEditar}
@@ -464,6 +473,7 @@ function MenuAcciones({
   onCancelar,
   onCheckIn,
   onHuespedes,
+  onConsumos,
   onCuenta,
 }: {
   reserva: Reserva;
@@ -472,6 +482,7 @@ function MenuAcciones({
   onCancelar: () => void;
   onCheckIn: () => void;
   onHuespedes: () => void;
+  onConsumos: () => void;
   onCuenta: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -584,9 +595,14 @@ function MenuAcciones({
                 </Button>
               )}
               {estado === "IN_HOUSE" && (
-                <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onHuespedes)} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
-                  Huéspedes
-                </Button>
+                <>
+                  <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onHuespedes)} aria-label={`Ver huéspedes de ${r.reservation_code}`}>
+                    Huéspedes
+                  </Button>
+                  <Button tamano="sm" variante="secundario" className="w-full justify-start" onClick={ejecutar(onConsumos)} aria-label={`Consumos y servicios de ${r.reservation_code}`}>
+                    Consumos y Servicios
+                  </Button>
+                </>
               )}
               {["CONFIRMADA", "IN_HOUSE", "FINALIZADA"].includes(estado) && (
                 <Button tamano="sm" className="w-full justify-start" onClick={ejecutar(onCuenta)} aria-label={`Abrir cuenta de ${r.reservation_code}`}>
@@ -1451,5 +1467,250 @@ function ModalShell({
         <div className="px-6 py-5">{children}</div>
       </div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Modal: Consumos y Servicios por huésped
+ * ------------------------------------------------------------------------- */
+
+interface Servicio {
+  service_id: number;
+  category: string;
+  service_name: string;
+  description: string | null;
+  current_price: number | string;
+  currency: string;
+  active: boolean;
+  inventory_article_id?: number | null;
+  inventory_deposit_id?: number | null;
+}
+interface Estadia {
+  room_id: number;
+  room_number: string;
+  reservation_id: number;
+  reservation_code: string;
+  guest_first_name: string;
+  guest_last_name: string;
+}
+interface Cargo {
+  charge_id: number;
+  service_name: string;
+  quantity: number;
+  unit_price: number | string;
+  total_amount: number | string;
+  charged_at: string;
+  paid_at: string | null;
+  payment_method: string | null;
+  payment_reference: string | null;
+  employees_name: string;
+  employees_lastname: string;
+}
+interface HuespedEstadia {
+  stay_guest_id: number;
+  guest_role: "TITULAR" | "ACOMPANANTE";
+  person_type: "ADULTO" | "MENOR";
+  document_type: string;
+  document_number: string;
+  first_name: string;
+  last_name: string;
+  recorded_at: string;
+}
+
+const CATEGORIAS: Record<string, string> = {
+  MINIBAR: "Minibar",
+  GASTRONOMIA: "Desayuno y gastronomía",
+  LAVANDERIA: "Lavandería",
+  ESTACIONAMIENTO: "Estacionamiento",
+  LIMPIEZA: "Limpieza",
+  TRANSPORTE: "Transporte",
+  OTROS: "Otros servicios",
+};
+const etiquetaCategoria = (cat: string) => CATEGORIAS[cat] ?? "Otros servicios";
+const money = (value: number | string, currency = "ARS") => Number(value).toLocaleString("es-AR", { style: "currency", currency, maximumFractionDigits: 2 });
+
+function ModalConsumosHuespedes({ reserva, onCerrar }: { reserva: Reserva; onCerrar: () => void }) {
+  const [huespedes, setHuespedes] = useState<HuespedEstadia[]>([]);
+  const [servicios, setServicios] = useState<Servicio[]>([]);
+  const [estadias, setEstadias] = useState<Estadia[]>([]);
+  const [cargos, setCargos] = useState<Cargo[]>([]);
+  const [huespedSeleccionado, setHuespedSeleccionado] = useState<HuespedEstadia | null>(null);
+  const [serviceId, setServiceId] = useState("");
+  const [cantidad, setCantidad] = useState("1");
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const estadiaActual = useMemo(() => estadias.find((e) => e.reservation_id === reserva.reservation_id), [estadias, reserva.reservation_id]);
+
+  useEffect(() => {
+    let vigente = true;
+    Promise.all([
+      api.get<Reserva>(`/reservas/${reserva.reservation_id}`),
+      api.get<Servicio[]>("/servicios-habitacion/catalogo"),
+      api.get<Estadia[]>("/servicios-habitacion/habitaciones-ocupadas"),
+    ])
+      .then(([detalle, listaServicios, listaEstadias]) => {
+        if (!vigente) return;
+        setHuespedes(detalle.stay_guests ?? []);
+        setServicios(listaServicios.filter((s) => s.active));
+        setEstadias(listaEstadias);
+      })
+      .catch((err) => {
+        if (!vigente) return;
+        setError(err instanceof ApiError ? err.message : "No se pudieron cargar los datos.");
+      })
+      .finally(() => {
+        if (vigente) setCargando(false);
+      });
+    return () => { vigente = false; };
+  }, [reserva.reservation_id]);
+
+  useEffect(() => {
+    if (!estadiaActual || !huespedSeleccionado) return;
+    let vigente = true;
+    api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`)
+      .then((lista) => { if (vigente) setCargos(lista); })
+      .catch((err) => { if (vigente) setError(err instanceof ApiError ? err.message : "No se pudieron cargar los cargos."); });
+    return () => { vigente = false; };
+  }, [estadiaActual, huespedSeleccionado]);
+
+  const cargarConsumo = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!estadiaActual || !huespedSeleccionado || !serviceId) return;
+    setError(null);
+    setAviso(null);
+    setGuardando(true);
+    try {
+      await api.post(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`, {
+        expectedReservationId: estadiaActual.reservation_id,
+        serviceId: Number(serviceId),
+        quantity: Number(cantidad),
+        employeeId: Number(window.localStorage.getItem("employeeId") ?? 1),
+      });
+      setAviso(`Consumo agregado para ${huespedSeleccionado.first_name} ${huespedSeleccionado.last_name}.`);
+      setCantidad("1");
+      setCargos(await api.get<Cargo[]>(`/servicios-habitacion/habitaciones/${estadiaActual.room_id}/cargos`));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo cargar el consumo.");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const consumosHuesped = huespedSeleccionado
+    ? cargos.filter((c) => true) // En el backend actual no hay filtro por huésped, mostramos todos
+    : [];
+
+  return (
+    <ModalShell titulo={`Consumos y Servicios — ${reserva.reservation_code}`} onCerrar={onCerrar} ancho="max-w-2xl">
+      <div className="space-y-5">
+        <p className="text-sm text-carbon/70">{reserva.guest.last_name}, {reserva.guest.first_name} · Habitación {reserva.room.room_number}</p>
+        {error && <InfoBox tipo="error">{error}</InfoBox>}
+        {aviso && <InfoBox tipo="exito">{aviso}</InfoBox>}
+
+        {cargando ? (
+          <p className="py-8 text-center text-sm text-carbon/50">Cargando huéspedes y servicios…</p>
+        ) : (
+          <>
+            {/* Selector de huésped */}
+            <section className="rounded-lg border border-line bg-bone/20 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-carbon">Huéspedes de la estadía</h3>
+              {huespedes.length === 0 ? (
+                <p className="text-sm text-carbon/55">No hay huéspedes registrados para esta estadía.</p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {huespedes.map((h) => (
+                    <button
+                      key={h.stay_guest_id}
+                      type="button"
+                      onClick={() => setHuespedSeleccionado(h)}
+                      className={`text-left rounded-md border p-3 transition-colors ${
+                        huespedSeleccionado?.stay_guest_id === h.stay_guest_id
+                          ? "border-gold bg-gold/10 shadow-sm"
+                          : "border-line bg-white hover:border-gold/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-carbon">{h.last_name}, {h.first_name}</span>
+                        <Badge tono={h.person_type === "ADULTO" ? "info" : "activo"}>{h.person_type === "ADULTO" ? "Adulto" : "Menor"}</Badge>
+                        <Badge tono={h.guest_role === "TITULAR" ? "activo" : "info"}>{h.guest_role === "TITULAR" ? "Titular" : "Acompañante"}</Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-carbon/50">{h.document_type} {h.document_number}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {huespedSeleccionado && (
+              <>
+                {/* Formulario para agregar consumo */}
+                <section className="rounded-lg border border-line p-4">
+                  <h3 className="mb-3 text-sm font-semibold text-carbon">
+                    Agregar consumo para <strong className="text-carbon">{huespedSeleccionado.last_name}, {huespedSeleccionado.first_name}</strong>
+                  </h3>
+                  <form onSubmit={cargarConsumo} className="space-y-3 md:space-y-0 md:grid md:grid-cols-[1fr_auto_auto_auto] md:items-end">
+                    <Field label="Servicio" htmlFor="consumo-servicio" requerido>
+                      <Select id="consumo-servicio" value={serviceId} onChange={(e) => setServiceId(e.target.value)} required disabled={guardando}>
+                        <option value="">Elegí servicio</option>
+                        {servicios.map((s) => (
+                          <option key={s.service_id} value={s.service_id}>
+                            {etiquetaCategoria(s.category)} · {s.service_name} · {money(s.current_price, s.currency)}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Cantidad" htmlFor="consumo-cantidad" requerido>
+                      <Input id="consumo-cantidad" type="number" min="1" max="100" step="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required disabled={guardando} />
+                    </Field>
+                    <Button type="submit" cargando={guardando} disabled={!serviceId || !estadiaActual}>
+                      Cargar consumo
+                    </Button>
+                  </form>
+                </section>
+
+                {/* Consumos registrados */}
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-carbon">Consumos de la habitación</h3>
+                  {cargos.length === 0 ? (
+                    <p className="rounded-md border border-dashed border-line bg-white px-3 py-3 text-xs text-carbon/55">Todavía no hay consumos cargados a esta habitación.</p>
+                  ) : (
+                    <Table>
+                      <THead>
+                        <TH>Servicio</TH>
+                        <TH>Cantidad</TH>
+                        <TH>Precio unitario</TH>
+                        <TH>Total</TH>
+                        <TH>Fecha</TH>
+                        <TH>Estado</TH>
+                      </THead>
+                      <TBody>
+                        {cargos.map((c) => (
+                          <TR key={c.charge_id}>
+                            <TD>{c.service_name}</TD>
+                            <TD>{c.quantity}</TD>
+                            <TD>{money(c.unit_price)}</TD>
+                            <TD className="font-semibold">{money(c.total_amount)}</TD>
+                            <TD>{new Date(c.charged_at).toLocaleString("es-AR")}</TD>
+                            <TD>
+                              <Badge tono={c.paid_at ? "activo" : "alerta"}>
+                                {c.paid_at ? `Cobrado${c.payment_method ? ` · ${c.payment_method}` : ""}` : "Pendiente"}
+                              </Badge>
+                              {c.payment_reference && <span className="ml-1 block text-xs text-carbon/55">Ref. {c.payment_reference}</span>}
+                            </TD>
+                          </TR>
+                        ))}
+                      </TBody>
+                    </Table>
+                  )}
+                </section>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </ModalShell>
   );
 }

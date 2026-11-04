@@ -59,13 +59,16 @@ export const MODULOS: ItemNavegacion[] = [
     ],
   },
   {
+    nombre: "Consumos y Servicios",
+    ruta: "/habitaciones/servicios",
+  },
+  {
     nombre: "Habitaciones",
     ruta: "/habitaciones",
     hijos: [
       { nombre: "Inventario", ruta: "/habitaciones" },
       { nombre: "Panel consolidado", ruta: "/habitaciones/panel" },
       { nombre: "Tarifas", ruta: "/habitaciones/tarifas" },
-      { nombre: "Servicios y consumos", ruta: "/habitaciones/servicios" },
       { nombre: "Consulta de disponibilidad", ruta: "/habitaciones/disponibilidad" },
       { nombre: "Tipos de habitación", ruta: "/habitaciones/tipos" },
       { nombre: "Housekeeping", ruta: "/habitaciones/housekeeping" },

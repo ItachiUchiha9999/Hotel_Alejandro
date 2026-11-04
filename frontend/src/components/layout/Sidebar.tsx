@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Home,
   Building2,
+  Utensils,
 } from "lucide-react";
 
 interface NavItem {
@@ -55,6 +56,7 @@ const navigation: NavItem[] = [
       { label: "Housekeeping", href: "/habitaciones/housekeeping", icon: <Home className="w-4 h-4" /> },
     ],
   },
+  { label: "Consumos y Servicios", href: "/habitaciones/servicios", icon: <Utensils className="w-5 h-5" /> },
   { label: "Huéspedes", href: "/huespedes", icon: <Users className="w-5 h-5" /> },
   {
     label: "Inventario",
