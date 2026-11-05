@@ -11,6 +11,7 @@ import { EmptyStates, CardSkeleton, TableSkeleton } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { ComparativaFinanciera } from "@/components/finanzas/ComparativaFinanciera";
 
 type PeriodoFinanciero = "SEMANA" | "MES" | "ANIO";
 interface PuntoFinanciero { pendiente?: boolean; fecha: string; ingresos: number; egresos: number; neto: number; margen_porcentual: number | null; }
@@ -195,136 +196,6 @@ function LineaTendenciaFinanciera({ reporte }: { reporte: ReporteFinanciero }) {
       </svg>
       <p className="mt-2 text-right text-xs text-neutral-55">Escala vertical: pesos argentinos</p>
     </div>
-  );
-}
-
-// Financial Chart using simple bars with entrance animations
-function FinancialChart({ points, selectedDate, onSelectDate, period }: {
-  points: PuntoFinanciero[];
-  selectedDate: string | null;
-  onSelectDate: (date: string) => void;
-  period: PeriodoFinanciero;
-}) {
-  const [animar, setAnimar] = useState(false);
-  useEffect(() => { setAnimar(false); requestAnimationFrame(() => setAnimar(true)); }, [points.length, period]);
-
-  const hasData = points.some(p => p.ingresos !== 0 || p.egresos !== 0);
-  if (!hasData && period !== "ANIO") {
-    return (
-      <Card variant="outlined" padding="md" className="min-h-[300px] flex items-center justify-center">
-        <p className="text-center text-sm text-neutral-500">No hay cobros ni pagos registrados en este período.</p>
-      </Card>
-    );
-  }
-
-  const selected = points.find(p => p.fecha === selectedDate) || points.find(p => p.ingresos !== 0 || p.egresos !== 0) || points[0];
-  const maxVal = Math.max(...points.flatMap(p => [p.ingresos, p.egresos, Math.abs(p.neto), 1]));
-  const minVal = Math.min(...points.flatMap(p => [p.ingresos, p.egresos, p.neto, 0]));
-  const range = maxVal - minVal || 1;
-
-  return (
-    <Card variant="outlined" padding="md" className="animate-slide-up-slow">
-      <div className="mb-4">
-        <p className="text-xs text-neutral-500 mb-3 animate-fade-in stagger-1">
-          Compará ingresos y egresos de cada {period === "ANIO" ? "mes" : "día"}.
-          Seleccioná {period === "ANIO" ? "un mes" : "un día"} para ver el detalle.
-        </p>
-
-        {/* Chart */}
-        <div className="overflow-x-auto" role="img" aria-label={period === "ANIO" ? "Comparativa financiera anual por mes" : "Comparativa financiera diaria"}>
-          <div className="flex items-end gap-1 h-64 min-w-max pb-2" style={{ minWidth: Math.max(600, points.length * 50) }}>
-            {points.map((p, i) => {
-              const ingresoHeight = p.ingresos ? Math.max(4, (p.ingresos / maxVal) * 200) : 0;
-              const egresoHeight = p.egresos ? Math.max(4, (p.egresos / maxVal) * 200) : 0;
-              const isSelected = p.fecha === selectedDate;
-              const delay = (i % 10) * 50;
-
-              return (
-                <div
-                  key={p.fecha}
-                  className="flex flex-col items-center gap-1 flex-1 min-w-[40px] cursor-pointer transition-all animate-slide-up-slow"
-                  style={{ animationDelay: `${delay}ms`, opacity: p.pendiente ? 0.5 : 1 }}
-                  onClick={() => onSelectDate(p.fecha)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectDate(p.fecha); }}}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${fechaCorta(p.fecha)}: Ingresos ${moneda(p.ingresos)}, Egresos ${moneda(p.egresos)}, Resultado ${moneda(p.neto)}`}
-                  aria-pressed={isSelected}
-                >
-                  <div className="flex flex-col items-center gap-1 flex-1 relative" style={{ height: 200 }}>
-                    {p.ingresos > 0 && (
-                      <div
-                        className="w-full bg-success-500 rounded-t transition-all hover:bg-success-600 animate-scale-in"
-                        style={{
-                          height: animar ? ingresoHeight : 0,
-                          transformOrigin: "bottom center",
-                          transition: "height 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
-                          transitionDelay: `${delay}ms`,
-                        }}
-                        title={`Ingresos: ${moneda(p.ingresos)}`}
-                      />
-                    )}
-                    {p.egresos > 0 && (
-                      <div
-                        className="w-full bg-danger-500 rounded-t transition-all hover:bg-danger-600 animate-scale-in"
-                        style={{
-                          height: animar ? egresoHeight : 0,
-                          transformOrigin: "bottom center",
-                          transition: "height 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
-                          transitionDelay: `${delay + 80}ms`,
-                        }}
-                        title={`Egresos: ${moneda(p.egresos)}`}
-                      />
-                    )}
-                    {/* Net line indicator */}
-                    <div
-                      className="absolute left-0 right-0 h-0.5 bg-gold-400 animate-fade-in"
-                      style={{
-                        bottom: ((p.neto - minVal) / range) * 200,
-                        opacity: animar ? 1 : 0,
-                        transition: `opacity 0.4s ease ${delay + 120}ms`,
-                      }}
-                    />
-                  </div>
-                  <span className={cn("text-xs font-medium", isSelected ? "text-gold-600" : "text-neutral-500")} style={{ opacity: animar ? 1 : 0, transition: `opacity 0.3s ease ${delay + 200}ms` }}>
-                    {period === "ANIO"
-                      ? format(new Date(`${p.fecha}T12:00:00`), "MMM", { locale: es }).toUpperCase()
-                      : p.fecha.slice(-2)}
-                  </span>
-                  {p.pendiente && <span className="text-[10px] text-neutral-400">Pendiente</span>}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Selected day detail */}
-          <div className="mt-4 grid grid-cols-4 gap-4 animate-fade-in stagger-5">
-            <div className="rounded-lg bg-neutral-50 p-3">
-              <p className="text-xs text-neutral-500">{period === "ANIO" ? "Mes seleccionado" : "Día seleccionado"}</p>
-              <p className="font-medium text-neutral-900">
-                {period === "ANIO"
-                  ? format(new Date(`${selected?.fecha}T12:00:00`), "MMMM yyyy", { locale: es })
-                  : format(new Date(`${selected?.fecha}T12:00:00`), "dd MMMM", { locale: es })}
-              </p>
-            </div>
-            <div className="rounded-lg bg-success-50 p-3">
-              <p className="text-xs text-success-700">Ingresos cobrados</p>
-              <p className="font-bold text-success-700">{selected?.pendiente ? "—" : moneda(selected?.ingresos ?? 0)}</p>
-            </div>
-            <div className="rounded-lg bg-danger-50 p-3">
-              <p className="text-xs text-danger-700">Egresos pagados</p>
-              <p className="font-bold text-danger-700">{selected?.pendiente ? "—" : moneda(selected?.egresos ?? 0)}</p>
-            </div>
-            <div className={cn("rounded-lg p-3", (selected?.neto ?? 0) < 0 ? "bg-danger-50" : "bg-gold-50")}>
-              <p className="text-xs text-neutral-500">Resultado del período</p>
-              <p className={cn("font-bold", (selected?.neto ?? 0) < 0 ? "text-danger-700" : "text-neutral-900")}>
-                {selected?.pendiente ? "—" : moneda(selected?.neto ?? 0)}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
   );
 }
 
@@ -706,7 +577,7 @@ export default function InicioPage() {
                   </div>
 
                   {/* Financial Chart */}
-                  <FinancialChart
+                  <ComparativaFinanciera
                     points={reporte.serie}
                     selectedDate={fechaSeleccionadaGrafico}
                     onSelectDate={setFechaSeleccionadaGrafico}

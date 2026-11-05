@@ -75,6 +75,19 @@ const crear = async (datos = {}, actorEmployeeId = 1) => {
   const { text: fechaTexto } = fechaValida(datos.valid_from ?? datos.fecha_desde ?? datos.fechaInicio ?? fechaLocalHoy(), 'fecha de vigencia');
   if (fechaTexto < fechaLocalHoy()) throw invalido('La fecha de vigencia debe ser hoy o futura para conservar el historial de precios.');
 
+  // En el formulario, hasta es inclusivo. La base usa intervalos [desde, hasta).
+  let fechaHasta = null;
+  const hastaInclusivo = datos.fecha_hasta;
+  if (hastaInclusivo !== undefined && hastaInclusivo !== null && hastaInclusivo !== '') {
+    const hasta = fechaValida(hastaInclusivo, 'fecha final');
+    if (hasta.text < fechaTexto) throw invalido('La fecha final no puede ser anterior a la fecha de inicio.');
+    hasta.parsed.setUTCDate(hasta.parsed.getUTCDate() + 1);
+    fechaHasta = hasta.parsed.toISOString().slice(0, 10);
+  } else if (datos.valid_to !== undefined && datos.valid_to !== null && datos.valid_to !== '') {
+    fechaHasta = fechaValida(datos.valid_to, 'fecha final').text;
+    if (fechaHasta <= fechaTexto) throw invalido('El límite final debe ser posterior a la fecha de inicio.');
+  }
+
   const temporada = (toText(datos.season_name ?? datos.temporada) ?? 'GENERAL').toUpperCase();
   if (!TEMPORADAS.has(temporada)) throw invalido('Elegí una temporada general, alta, baja o especial.');
   const motivo = toText(datos.reason ?? datos.motivo);
@@ -89,6 +102,7 @@ const crear = async (datos = {}, actorEmployeeId = 1) => {
 
   try {
     return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT room_type_id FROM room_type WHERE room_type_id = ${tipoId} FOR UPDATE`;
       const ultima = await tx.$queryRaw`
         SELECT valid_from FROM "room_type_rate"
         WHERE room_type_id = ${tipoId}
@@ -101,9 +115,9 @@ const crear = async (datos = {}, actorEmployeeId = 1) => {
       // El trigger existente cierra la tarifa abierta anterior en esta fecha.
       const filas = await tx.$queryRaw`
         INSERT INTO "room_type_rate"
-          (room_type_id, base_price, currency, valid_from, season_name, reason, employees_id)
+          (room_type_id, base_price, currency, valid_from, valid_to, season_name, reason, employees_id)
         VALUES
-          (${tipoId}, ${precio}, ${moneda}, ${fechaTexto}::date, ${temporada}, ${motivo || `Tarifa de temporada ${temporada.toLowerCase()}`}, ${empleadoId})
+          (${tipoId}, ${precio}, ${moneda}, ${fechaTexto}::date, ${fechaHasta}::date, ${temporada}, ${motivo || `Tarifa de temporada ${temporada.toLowerCase()}`}, ${empleadoId})
         RETURNING rate_id`;
       const lista = await tx.$queryRaw`${Prisma.raw(PRECIO_SQL)} WHERE rr.rate_id = ${filas[0].rate_id}`;
       return presentarTarifa(lista[0]);

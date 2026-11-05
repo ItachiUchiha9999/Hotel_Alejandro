@@ -212,6 +212,8 @@ interface ServicioPrecio {
         setMotivo,
     ] = useState("");
 
+    const [fechaHasta, setFechaHasta] = useState("");
+
     const [temporada, setTemporada] = useState<Tarifa["season_name"]>("GENERAL");
 
     /**
@@ -346,6 +348,7 @@ interface ServicioPrecio {
      * Limpia formulario.
      */
     function limpiarFormulario() {
+        setFechaHasta("");
         setEditando(null);
         setTipoId("");
         setPrecio("");
@@ -429,13 +432,18 @@ interface ServicioPrecio {
         return;
         }
 
+        if (!editando && fechaHasta && fechaHasta < fechaDesde) {
+            setError("La fecha final no puede ser anterior a la fecha de inicio.");
+            return;
+        }
+
         try {
         setGuardando(
             true
         );
 
         const payload = { room_type_id: Number(tipoId), base_price: precioNumero,
-            currency: moneda, season_name: temporada, valid_from: fechaDesde, reason: motivo.trim() || null };
+            currency: moneda, season_name: temporada, valid_from: fechaDesde, ...(!editando ? { fecha_hasta: fechaHasta || null } : {}), reason: motivo.trim() || null };
         const nuevaTarifa = editando
             ? await api.put<Tarifa>(`/tarifas/${editando.rate_id}`, payload)
             : await api.post<Tarifa>("/tarifas", payload);
@@ -469,6 +477,7 @@ interface ServicioPrecio {
         setEditando(tarifa); setTipoId(String(tarifa.room_type_id));
         setPrecio(String(tarifa.base_price)); setMoneda(tarifa.currency);
         setTemporada(tarifa.season_name); setFechaDesde(tarifa.valid_from.slice(0, 10));
+        setFechaHasta(tarifa.valid_to ? (() => { const fecha = new Date(tarifa.valid_to.slice(0, 10) + "T00:00:00Z"); fecha.setUTCDate(fecha.getUTCDate() - 1); return fecha.toISOString().slice(0, 10); })() : "");
         setMotivo(tarifa.reason || ""); setError(null); setAviso(null); setMostrarFormulario(true);
     }
     async function cambiarEstado(tarifa: Tarifa) {
@@ -573,7 +582,7 @@ interface ServicioPrecio {
                     Vigente desde{" "}
                     {formatearFecha(
                         tarifa.valid_from
-                    )}
+                    )}{tarifa.valid_to && <> · hasta {fechaHastaInclusiva(tarifa.valid_to)}</>}
                     </p>
                 </div>
                 </div>
@@ -588,7 +597,7 @@ interface ServicioPrecio {
                         <div key={tarifa.rate_id} className="flex items-center justify-between gap-4 rounded-lg border border-line bg-bone/25 p-4">
                             <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-carbon">{tarifa.room_type.room_type_name}</p>
-                                <p className="mt-1 text-xs text-carbon/55">Temporada {tarifa.season_name === "GENERAL" ? "general" : tarifa.season_name.toLowerCase()} · desde {formatearFecha(tarifa.valid_from)}</p>
+                                <p className="mt-1 text-xs text-carbon/55">Temporada {tarifa.season_name === "GENERAL" ? "general" : tarifa.season_name.toLowerCase()} · desde {formatearFecha(tarifa.valid_from)}{tarifa.valid_to && <> · hasta {fechaHastaInclusiva(tarifa.valid_to)}</>}</p>
                             </div>
                             <p className="shrink-0 text-sm font-semibold tabular-nums text-carbon">{formatearPrecio(tarifa.base_price, tarifa.currency)}</p>
                         </div>
@@ -1073,11 +1082,12 @@ interface ServicioPrecio {
 
                 {/* Fecha */}
                 <div>
-                    <label className="mb-2 block text-sm font-medium text-carbon">
+                    <label htmlFor="tarifa-desde" className="mb-2 block text-sm font-medium text-carbon">
                     Vigente desde
                     </label>
 
                     <Input
+                    id="tarifa-desde"
                     type="date"
                     disabled={!!editando}
                     value={
@@ -1094,6 +1104,15 @@ interface ServicioPrecio {
                     }
                     required
                     />
+                </div>
+
+                {/* Fecha final inclusiva; vacía conserva la vigencia abierta. */}
+                <div>
+                    <label htmlFor="tarifa-hasta" className="mb-2 block text-sm font-medium text-carbon">Vigente hasta <span className="font-normal text-carbon/60">(opcional)</span></label>
+                    <Input id="tarifa-hasta" type="date" disabled={!!editando} value={fechaHasta}
+                        min={fechaDesde || undefined} onChange={e => setFechaHasta(e.target.value)}
+                        aria-describedby="tarifa-hasta-ayuda" />
+                    <p id="tarifa-hasta-ayuda" className="mt-2 text-xs leading-5 text-carbon/70">Incluye el día seleccionado. Dejalo vacío si no tiene una fecha de finalización definida.</p>
                 </div>
 
                 {/* Motivo */}
@@ -1128,7 +1147,7 @@ interface ServicioPrecio {
                 <div className="md:col-span-2">
                     <div className="rounded-lg border border-gold/30 bg-gold/10 px-4 py-3">
                     <p className="text-sm text-carbon/70">
-                        Programá los cambios cargando una tarifa por fecha: por ejemplo, una temporada alta para diciembre y luego una tarifa general o baja desde enero. El precio anterior queda vigente hasta el día previo al próximo cambio.
+                        La tarifa anterior queda vigente hasta el día previo al nuevo inicio. Si indicás una fecha final, después de ese día necesitás otra tarifa vigente para nuevas reservas. Las reservas existentes conservan su precio.
                     </p>
                     </div>
                 </div>
