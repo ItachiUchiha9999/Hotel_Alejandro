@@ -28,10 +28,12 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
     const hasError = error || invalido;
 
     // Support both old API (children) and new API (options prop)
-    const selectOptions = options || (children ? React.Children.toArray(children).filter(React.isValidElement).map(child => {
+    const selectOptions = options || (children ? React.Children.toArray(children).filter(React.isValidElement).map((child, index) => {
       const opt = child as React.ReactElement<any>;
+      // Fallback to children (text content) if value prop is not provided
+      const value = opt.props.value ?? opt.props.children ?? index;
       return {
-        value: opt.props.value,
+        value,
         label: opt.props.children || opt.props.value,
         disabled: opt.props.disabled,
       };
@@ -74,8 +76,8 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
                 {placeholder}
               </option>
             )}
-            {selectOptions.map((option) => (
-              <option key={option.value} value={option.value} disabled={option.disabled}>
+            {selectOptions.map((option, index) => (
+              <option key={index} value={option.value} disabled={option.disabled}>
                 {option.label}
               </option>
             ))}

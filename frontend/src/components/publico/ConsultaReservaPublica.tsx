@@ -9,7 +9,7 @@ import { api, ApiError } from "@/lib/api";
 type Detalle = {
   codigo: string; huesped: string; documento: string; fecha_ingreso: string; fecha_salida: string;
   hora_llegada: string | null; huespedes: number; habitacion: string; tipo_habitacion: string; total: number; estado: string;
-  abonado: number; saldo: number; pagos: { importe: number; fecha: string; metodo: string; tarjeta_ultimos4: string | null; simulado: boolean }[];
+  abonado: number; saldo: number; pagos: { importe: number; fecha: string; metodo: string; tarjeta_ultimos4: string | null }[];
   medios_pago: { payment_method_id: number; payment_method: string }[];
   cancelable: boolean; cancelacion: null | { condiciones: string; horas_cancelacion_sin_cargo: number; porcentaje_penalidad: number; penalidad: number };
 };
@@ -38,9 +38,6 @@ export function ConsultaReservaPublica() {
   const [codigo, setCodigo] = useState(""); const [documento, setDocumento] = useState("");
   const [reserva, setReserva] = useState<Detalle | null>(null); const [error, setError] = useState("");
   const [confirmar, setConfirmar] = useState(false); const [cargando, setCargando] = useState(false); const [cancelando, setCancelando] = useState(false);
-  const [medioPago, setMedioPago] = useState(""); const [pagando, setPagando] = useState(false);
-  const [titularTarjeta, setTitularTarjeta] = useState(""); const [numeroTarjeta, setNumeroTarjeta] = useState("");
-  const [vencimientoTarjeta, setVencimientoTarjeta] = useState(""); const [codigoTarjeta, setCodigoTarjeta] = useState("");
   async function consultar(e: FormEvent) {
     e.preventDefault(); setError(""); setReserva(null); setConfirmar(false);
     if (!codigo.trim() || !documento.trim()) return setError("Ingresá el código de reserva y el documento del huésped.");
@@ -54,24 +51,6 @@ export function ConsultaReservaPublica() {
     } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo cancelar la reserva. Volvé a consultar su estado."); }
     finally { setCancelando(false); }
   }
-  async function pagarPrueba() {
-    if (!reserva || !medioPago) return;
-    const metodoElegido = reserva.medios_pago.find(medio => medio.payment_method_id === Number(medioPago))?.payment_method || "";
-    if (metodoElegido.toUpperCase().includes("TARJETA")) {
-      const errorTarjeta = validarDatosTarjeta(titularTarjeta, numeroTarjeta, vencimientoTarjeta, codigoTarjeta);
-      if (errorTarjeta) { setError(errorTarjeta); return; }
-    }
-    setPagando(true); setError("");
-    try {
-      const cardLast4 = metodoElegido.toUpperCase().includes("TARJETA") ? numeroTarjeta.replace(/\D/g, "").slice(-4) : undefined;
-      await api.post(`/publico/reservas/${encodeURIComponent(reserva.codigo)}/pago-prueba`, { documento, paymentMethodId: Number(medioPago), cardLast4 });
-      setTitularTarjeta(""); setNumeroTarjeta(""); setVencimientoTarjeta(""); setCodigoTarjeta("");
-      setReserva(await api.post<Detalle>("/publico/reservas/consultar", { codigo: reserva.codigo, documento }));
-    } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo registrar el pago de prueba."); }
-    finally { setPagando(false); }
-  }
-  const medioActual = reserva?.medios_pago.find(medio => medio.payment_method_id === Number(medioPago || reserva.medios_pago[0]?.payment_method_id));
-  const requiereTarjeta = medioActual?.payment_method.toUpperCase().includes("TARJETA") ?? false;
   const alojamientoPagado = Boolean(reserva && reserva.abonado > 0 && reserva.saldo <= 0.001);
   const estadoVisible = !reserva ? "" : reserva.estado === "CANCELADA" ? "CANCELADA"
     : reserva.estado === "PENDIENTE" ? "PENDIENTE DE CONFIRMACIÓN"
@@ -118,9 +97,6 @@ export function ConsultaReservaPublica() {
             <div className="flex items-center gap-2"><CreditCard size={18} className="text-[#a67d4b]"/><h3 className="font-serif text-lg">Pagos de la reserva</h3></div>
             <div className="mt-3 flex flex-wrap justify-between gap-2 text-sm"><span>Abonado: <strong>{moneda(reserva.abonado)}</strong></span><span>Saldo: <strong>{moneda(reserva.saldo)}</strong></span></div>
             {reserva.pagos.length > 0 && <ul className="mt-4 space-y-2">{reserva.pagos.map((pago, indice) => <li key={`${pago.fecha}-${indice}`} className="flex flex-wrap justify-between gap-2 rounded-lg border border-[#eee8de] bg-white px-4 py-3 text-sm"><span>{pago.metodo}{pago.tarjeta_ultimos4 && <span className="text-[#514d46]"> · Terminada en {pago.tarjeta_ultimos4}</span>}</span><strong>{moneda(pago.importe)}</strong></li>)}</ul>}
-            {reserva.saldo > 0 && reserva.estado === "CONFIRMADA" && <div className="mt-5 rounded-xl border border-[#e8e0d4] bg-white p-4"><p className="text-sm leading-6 text-[#514d46]">Modo de prueba: se registrará el medio de pago en la reserva, pero no se realizará un cargo real. Si elegís tarjeta, usá datos ficticios; no ingreses una tarjeta real.</p><label htmlFor="medio-pago-reserva" className="mt-4 block text-sm font-medium text-[#3f3b35]">Medio de pago</label><div className="mt-2 flex flex-col gap-3 sm:flex-row"><select id="medio-pago-reserva" value={medioPago || String(reserva.medios_pago[0]?.payment_method_id || "")} onChange={e => setMedioPago(e.target.value)} className="h-11 flex-1 rounded-md border border-[#aaa294] bg-white px-3 text-sm text-[#302d28] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#805b2d]">{reserva.medios_pago.map(medio => <option key={medio.payment_method_id} value={medio.payment_method_id}>{medio.payment_method}</option>)}</select></div>
-              {requiereTarjeta && <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-[#3f3b35]">Nombre del titular<Input autoComplete="off" value={titularTarjeta} onChange={e => setTitularTarjeta(e.target.value.replace(/[^\p{L}\p{M} .'-]/gu, ""))} maxLength={80} placeholder="Nombre como figura en la tarjeta" className="mt-1 h-11 placeholder:text-[#6b675f] focus-visible:ring-2 focus-visible:ring-[#805b2d]"/></label><label className="text-sm font-medium text-[#3f3b35]">Número de tarjeta<Input autoComplete="off" inputMode="numeric" value={numeroTarjeta} onChange={e => setNumeroTarjeta(e.target.value.replace(/\D/g, "").slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 "))} maxLength={23} placeholder="0000 0000 0000 0000" className="mt-1 h-11 placeholder:text-[#6b675f] focus-visible:ring-2 focus-visible:ring-[#805b2d]"/></label><label className="text-sm font-medium text-[#3f3b35]">Vencimiento (MM/AA)<Input autoComplete="off" inputMode="numeric" value={vencimientoTarjeta} onChange={e => { const digitos = e.target.value.replace(/\D/g, "").slice(0, 4); setVencimientoTarjeta(digitos.length > 2 ? `${digitos.slice(0, 2)}/${digitos.slice(2)}` : digitos); }} maxLength={5} placeholder="MM/AA" className="mt-1 h-11 placeholder:text-[#6b675f] focus-visible:ring-2 focus-visible:ring-[#805b2d]"/></label><label className="text-sm font-medium text-[#3f3b35]">Código de seguridad<Input autoComplete="off" inputMode="numeric" value={codigoTarjeta} onChange={e => setCodigoTarjeta(e.target.value.replace(/\D/g, "").slice(0, 4))} maxLength={4} placeholder="CVV" className="mt-1 h-11 placeholder:text-[#6b675f] focus-visible:ring-2 focus-visible:ring-[#805b2d]"/></label></div>}
-              <div className="mt-4 flex justify-end"><Button type="button" cargando={pagando} onClick={pagarPrueba}><CreditCard size={16}/> Pagar reserva</Button></div></div>}
             {reserva.saldo <= 0 && reserva.pagos.length > 0 && <p className="mt-4 text-sm font-medium text-[#56725c]">La estadía figura abonada en el sistema.</p>}
           </div>
           {reserva.estado === "CANCELADA" && <div className="px-5 pb-6 sm:px-8"><InfoBox tipo="regla">Esta reserva ya fue cancelada.</InfoBox></div>}

@@ -141,7 +141,6 @@ async function consultarReserva(codigo, documento) {
         fecha: pago.paid_at,
         metodo: pago.payment_method,
         tarjeta_ultimos4: ultimosDigitos,
-        simulado: referencia.startsWith('SIMULADO WEB:'),
       };
     }),
     medios_pago: metodosPago,
@@ -149,36 +148,6 @@ async function consultarReserva(codigo, documento) {
     cancelable,
     cancelacion,
   };
-}
-
-async function simularPagoReserva(codigo, documento, paymentMethodId, cardLast4) {
-  const metodoId = Number(paymentMethodId);
-  if (!Number.isInteger(metodoId) || metodoId <= 0) throw invalido('Elegí un medio de pago válido.');
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const reserva = await reservaVerificada(tx, codigo, documento, true);
-      if (reserva.reservation_status !== 'CONFIRMADA') throw conflicto('Solo se pueden simular pagos para reservas confirmadas por el hotel.');
-      const metodo = await tx.payment_method.findFirst({ where: { payment_method_id: metodoId, active: true } });
-      if (!metodo) throw invalido('El medio de pago seleccionado no está disponible.');
-      const esTarjeta = metodo.payment_method.toUpperCase().includes('TARJETA');
-      const ultimosDigitos = String(cardLast4 || '').trim();
-      if (esTarjeta && !/^\d{4}$/.test(ultimosDigitos)) throw invalido('No se pudieron validar los últimos cuatro dígitos de la tarjeta.');
-      const empleado = await tx.employees.findUnique({ where: { employees_id: Number(env.DEFAULT_EMPLOYEE_ID) }, select: { employees_state: true } });
-      if (!empleado?.employees_state) throw conflicto('No se pudo registrar el pago de prueba; contactá al hotel.');
-      const [acumulado] = await tx.$queryRaw`SELECT COALESCE(SUM(amount), 0)::numeric AS total FROM "reservation_payment" WHERE reservation_id = ${reserva.reservation_id}`;
-      const saldo = Math.max(0, Number(reserva.total_amount) - Number(acumulado.total));
-      if (saldo <= 0.001) throw conflicto('Esta reserva ya no tiene saldo pendiente.');
-      const referencia = esTarjeta
-        ? `SIMULADO WEB: TARJETA ****${ultimosDigitos} · PRUEBA-${Date.now()}`
-        : `SIMULADO WEB: ${metodo.payment_method} · PRUEBA-${Date.now()}`;
-      await tx.$executeRaw`INSERT INTO "reservation_payment" (reservation_id, payment_method_id, amount, payment_reference, employees_id)
-        VALUES (${reserva.reservation_id}, ${metodoId}, ${saldo}, ${referencia}, ${Number(env.DEFAULT_EMPLOYEE_ID)})`;
-      return { codigo: reserva.reservation_code, importe: saldo, metodo: metodo.payment_method, simulado: true };
-    }, { isolationLevel: 'Serializable' });
-  } catch (error) {
-    if (error.code === 'P2034' || (error.code === 'P2010' && ['40001', '40P01'].includes(error.meta?.code))) throw conflicto('El saldo cambió mientras procesábamos el pago de prueba. Volvé a consultar la reserva.');
-    throw error;
-  }
 }
 
 async function cancelarReserva(codigo, documento) {
@@ -205,4 +174,4 @@ async function cancelarReserva(codigo, documento) {
   }
 }
 
-module.exports = { disponibilidad, consultarReserva, simularPagoReserva, cancelarReserva, credenciales, cancelarPosible, calcularPenalidad, agruparPorTipo };
+module.exports = { disponibilidad, consultarReserva, cancelarReserva, credenciales, cancelarPosible, calcularPenalidad, agruparPorTipo };

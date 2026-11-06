@@ -57,50 +57,6 @@ function seleccionInicial() {
   return { desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy, agrupacion: "MES" as Agrupacion };
 }
 
-function crearReporteDemo(reporte: ReporteEgresos): ReporteEgresos {
-  const importes: Record<CategoriaId, number> = { PROVEEDORES: 0, COMPRAS_STOCK: 0, GASTOS_OPERATIVOS: 0 };
-  const movimientos: Movimiento[] = [];
-  const serie = reporte.serie.map((periodo, indice) => {
-    const categorias: Record<CategoriaId, number> = {
-      PROVEEDORES: 185000 + (indice % 5) * 17000,
-      COMPRAS_STOCK: 76000 + (indice % 4) * 11500,
-      GASTOS_OPERATIVOS: 42000 + (indice % 3) * 8500,
-    };
-    const ejemplos: Array<{ categoria: CategoriaId; proveedor: string; detalle: string }> = [
-      { categoria: "PROVEEDORES", proveedor: "Distribuidora Ejemplo (FICTICIO)", detalle: "Factura demostrativa de insumos" },
-      { categoria: "COMPRAS_STOCK", proveedor: "Mayorista Demo (FICTICIO)", detalle: "Comprobante demostrativo de stock" },
-      { categoria: "GASTOS_OPERATIVOS", proveedor: "Servicios Demo (FICTICIO)", detalle: "Comprobante demostrativo de servicio" },
-    ];
-    ejemplos.forEach((ejemplo, posicion) => {
-      const importe = categorias[ejemplo.categoria];
-      importes[ejemplo.categoria] += importe;
-      movimientos.push({
-        id: `DEMO-${periodo.inicio}-${posicion}`,
-        fecha: periodo.desde,
-        categoria: ejemplo.categoria,
-        detalle: ejemplo.detalle,
-        proveedor: ejemplo.proveedor,
-        payment_order_id: 900000 + indice * 10 + posicion,
-        importe,
-      });
-    });
-    return { ...periodo, categorias, total: Object.values(categorias).reduce((suma, importe) => suma + importe, 0), acumulado: 0 };
-  });
-  let acumulado = 0;
-  serie.forEach(periodo => { acumulado += periodo.total; periodo.acumulado = acumulado; });
-  const total = Object.values(importes).reduce((suma, importe) => suma + importe, 0);
-  const categorias: Categoria[] = reporte.categorias.map(categoria => ({ ...categoria, importe: importes[categoria.id] }));
-  const principal = [...categorias].sort((a, b) => b.importe - a.importe)[0];
-  return {
-    ...reporte,
-    total,
-    categorias,
-    categoria_principal: principal ? { ...principal, porcentaje: principal.importe / total * 100 } : null,
-    serie,
-    movimientos,
-  };
-}
-
 const moneda = (importe: number) => new Intl.NumberFormat("es-AR", {
   style: "currency",
   currency: "ARS",
@@ -247,11 +203,9 @@ export default function EgresosPage() {
   const [exportando, setExportando] = useState<"pdf" | "xlsx" | null>(null);
   const [errorExportacion, setErrorExportacion] = useState<string | null>(null);
   const [montado, setMontado] = useState(false);
-  const [mostrarDemo, setMostrarDemo] = useState(false);
   const consulta = new URLSearchParams(seleccion).toString();
   const vigente = resultado?.consulta === consulta;
-  const reporteReal = vigente ? resultado.reporte : undefined;
-  const reporte = reporteReal && mostrarDemo ? crearReporteDemo(reporteReal) : reporteReal;
+  const reporte = vigente ? resultado.reporte : undefined;
   const error = vigente ? resultado.error : undefined;
   const cargando = !vigente;
   const cantidadesPorCategoria = reporte?.movimientos.reduce<Partial<Record<CategoriaId, number>>>((acumulado, movimiento) => {
@@ -276,7 +230,7 @@ export default function EgresosPage() {
   }
 
   async function exportar(formato: "pdf" | "xlsx") {
-    if (!reporte || mostrarDemo) return;
+    if (!reporte) return;
     setExportando(formato);
     setErrorExportacion(null);
     try {
@@ -304,8 +258,8 @@ export default function EgresosPage() {
   return <>
     <PageHeader eyebrow="GERENCIA · REPORTES" titulo="Egresos" descripcion="Seguí las salidas de dinero por período y categoría."
       acciones={<>
-        <Button variante="secundario" disabled={!montado || !reporte || mostrarDemo || exportando !== null} cargando={exportando === "pdf"} onClick={() => exportar("pdf")}><Download size={15} />PDF</Button>
-        <Button variante="secundario" disabled={!montado || !reporte || mostrarDemo || exportando !== null} cargando={exportando === "xlsx"} onClick={() => exportar("xlsx")}><Download size={15} />Excel</Button>
+        <Button variante="secundario" disabled={!montado || !reporte || exportando !== null} cargando={exportando === "pdf"} onClick={() => exportar("pdf")}><Download size={15} />PDF</Button>
+        <Button variante="secundario" disabled={!montado || !reporte || exportando !== null} cargando={exportando === "xlsx"} onClick={() => exportar("xlsx")}><Download size={15} />Excel</Button>
       </>} />
 
     <Card className="mb-6"><form onSubmit={aplicar} className="flex flex-wrap items-end gap-4">
@@ -329,11 +283,6 @@ export default function EgresosPage() {
     <div aria-busy={cargando}>
       {cargando && <p role="status" className="py-14 text-center text-sm text-carbon/60">Cargando egresos…</p>}
       {reporte && <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3">
-          <p className="text-sm text-carbon/65">{mostrarDemo ? "Vista de demostración: los movimientos son ficticios y no se guardan." : "¿Querés previsualizar el reporte con movimientos de ejemplo?"}</p>
-          <Button variante="secundario" tamano="sm" onClick={() => setMostrarDemo(actual => !actual)}>{mostrarDemo ? "Volver a datos reales" : "Mostrar ejemplo ficticio"}</Button>
-        </div>
-        {mostrarDemo && <InfoBox>Datos ficticios de demostración. No corresponden a pagos reales y no se incluyen en las exportaciones.</InfoBox>}
         {reporte.total === 0 && <InfoBox>No hay egresos confirmados en el período seleccionado.</InfoBox>}
         <div className="grid gap-4 sm:grid-cols-3">
           <Card><p className="text-xs uppercase text-carbon/50">Egreso acumulado del período</p><p className="mt-3 text-2xl font-semibold tabular-nums">{moneda(reporte.total)}</p><p className="mt-2 text-xs text-carbon/50">{reporte.movimientos.length} movimientos · Pesos argentinos</p></Card>

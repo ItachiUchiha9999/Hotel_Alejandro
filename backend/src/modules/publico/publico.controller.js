@@ -16,11 +16,6 @@ const consultarReserva = asyncHandler(async (req, res) => {
   res.json({ ok: true, data });
 });
 
-const simularPagoReserva = asyncHandler(async (req, res) => {
-  const data = await service.simularPagoReserva(req.params.codigo, req.body.documento, req.body.paymentMethodId, req.body.cardLast4);
-  res.json({ ok: true, message: 'Pago de prueba registrado; no se realizó ningún cobro real.', data });
-});
-
 const cancelarReserva = asyncHandler(async (req, res) => {
   const data = await service.cancelarReserva(req.params.codigo, req.body.documento);
   res.json({ ok: true, message: 'La reserva fue cancelada correctamente.', data });
@@ -31,4 +26,4 @@ const crearReserva = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, data });
 });
 
-module.exports = { disponibilidad, consultarReserva, simularPagoReserva, cancelarReserva, crearReserva };
+module.exports = { disponibilidad, consultarReserva, cancelarReserva, crearReserva };

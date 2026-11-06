@@ -11,20 +11,6 @@ import { Input } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { Badge } from "@/components/ui/Badge";
 
-interface ResumenInventario {
-  totalArticulos: number;
-  totalStock: number;
-  valorTotal: number;
-  alertasStock: number;
-}
-
-const resumenMock: ResumenInventario = {
-  totalArticulos: 156,
-  totalStock: 2847,
-  valorTotal: 1245800,
-  alertasStock: 8,
-};
-
 const tabsInventario = [
   {
     value: "articulos",
@@ -142,54 +128,6 @@ export default function InventarioPage() {
           leftIcon={<Search className="w-4 h-4" />}
           className="w-72"
         />
-      </div>
-
-      {/* Resumen rápido */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-neutral-500">Total artículos</p>
-              <p className="text-2xl font-bold text-neutral-900">{resumenMock.totalArticulos.toLocaleString()}</p>
-            </div>
-            <div className="w-12 h-12 rounded-lg bg-gold-100 flex items-center justify-center">
-              <Package className="w-6 h-6 text-gold-600" />
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-neutral-500">Unidades en stock</p>
-              <p className="text-2xl font-bold text-neutral-900">{resumenMock.totalStock.toLocaleString()}</p>
-            </div>
-            <div className="w-12 h-12 rounded-lg bg-success-100 flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-success-600" />
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-neutral-500">Valor total inventario</p>
-              <p className="text-2xl font-bold text-neutral-900">${resumenMock.valorTotal.toLocaleString()}</p>
-            </div>
-            <div className="w-12 h-12 rounded-lg bg-info-100 flex items-center justify-center">
-              <Tag className="w-6 h-6 text-info-600" />
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-neutral-500">Alertas de stock bajo</p>
-              <p className="text-2xl font-bold text-danger-600">{resumenMock.alertasStock}</p>
-            </div>
-            <div className="w-12 h-12 rounded-lg bg-danger-100 flex items-center justify-center">
-              <ClipboardList className="w-6 h-6 text-danger-600" />
-            </div>
-          </div>
-        </Card>
       </div>
 
       {/* Tabs principales */}

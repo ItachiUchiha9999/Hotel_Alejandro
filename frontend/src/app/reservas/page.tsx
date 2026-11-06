@@ -50,12 +50,7 @@ const hoyUTC = () => {
 
 const yaLlegoLaFecha = (checkInDate: string) => new Date(checkInDate) <= hoyUTC();
 const formatoMoneda = (valor: number | string) => Number(valor).toLocaleString("es-AR", { style: "currency", currency: "ARS" });
-const detallePago = (referencia: string | null) => {
-  const tarjetaWeb = referencia?.startsWith("SIMULADO WEB: TARJETA");
-  const ultimos = referencia?.match(/^SIMULADO WEB: TARJETA \*{4}(\d{4})/);
-  if (tarjetaWeb) return ultimos ? ` · Tarjeta terminada en ${ultimos[1]}` : " · Terminación no disponible";
-  return referencia && !referencia.startsWith("SIMULADO WEB:") ? ` · Ref. ${referencia}` : "";
-};
+const detallePago = (referencia: string | null) => (referencia ? ` · Ref. ${referencia}` : "");
 
 interface CargoPendiente {
   charge_id: number;
@@ -202,7 +197,6 @@ export default function ReservasPage() {
       monto_abonado: actualizada.monto_abonado ?? r.monto_abonado,
       saldo_alojamiento: actualizada.saldo_alojamiento ?? r.saldo_alojamiento,
       medios_pago: actualizada.medios_pago ?? r.medios_pago,
-      pago_prueba: actualizada.pago_prueba ?? r.pago_prueba,
     } : r));
   };
 

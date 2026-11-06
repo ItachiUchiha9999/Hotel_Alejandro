@@ -653,8 +653,7 @@ const listar = async ({ estado, roomId, desde, hasta } = {}) => {
     reservas.length ? prisma.$queryRaw`
       SELECT rp.reservation_id,
              COALESCE(SUM(rp.amount), 0)::numeric AS abonado,
-             STRING_AGG(DISTINCT pm.payment_method, ', ' ORDER BY pm.payment_method) AS medios_pago,
-             BOOL_OR(COALESCE(rp.payment_reference, '') LIKE 'SIMULADO WEB:%') AS pago_prueba
+             STRING_AGG(DISTINCT pm.payment_method, ', ' ORDER BY pm.payment_method) AS medios_pago
       FROM "reservation_payment" rp
       JOIN "payment_method" pm ON pm.payment_method_id = rp.payment_method_id
       WHERE rp.reservation_id IN (${Prisma.join(reservas.map((r) => r.reservation_id))})
@@ -668,7 +667,6 @@ const listar = async ({ estado, roomId, desde, hasta } = {}) => {
     monto_abonado: Number(pagosPorReserva.get(reserva.reservation_id)?.abonado ?? 0),
     saldo_alojamiento: Math.max(0, Number(reserva.total_amount ?? 0) - Number(pagosPorReserva.get(reserva.reservation_id)?.abonado ?? 0)),
     medios_pago: pagosPorReserva.get(reserva.reservation_id)?.medios_pago ?? null,
-    pago_prueba: pagosPorReserva.get(reserva.reservation_id)?.pago_prueba ?? false,
   }));
 };
 

@@ -197,7 +197,6 @@ export interface Reserva {
   monto_abonado?: number;
   saldo_alojamiento?: number;
   medios_pago?: string | null;
-  pago_prueba?: boolean;
   stay_guests?: Array<{
     stay_guest_id: number;
     guest_role: "TITULAR" | "ACOMPANANTE";
